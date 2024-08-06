@@ -13,7 +13,7 @@ This project is a Dash-based web application for analyzing typhoon data in the W
 ## Installation
 
 1. Clone this repository:
- `git clone https://github.com/yu314-coder/typhoon-analysis-dashboard.git`
+ `git clone https://github.com/yu314-coder/typhoon-data-analysis.git`
 Copy
 2. Navigate to the project directory:
 cd typhoon-analysis-dashboard
