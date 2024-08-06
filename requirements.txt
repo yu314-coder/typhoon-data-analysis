@@ -12,8 +12,11 @@ requests==2.28.1
 matplotlib==3.5.3
 networkx==2.8.8
 xarray==2022.12.0
-cartopy==0.20.3
+cartopy==0.18.0
 shapely==1.8.5
 pyproj==3.3.0
 geos==0.2.3
 proj==0.2.0
+setuptools==65.5.0
+wheel==0.38.4
+pip==22.3.1
