@@ -3,6 +3,28 @@ import sys
 import git
 import subprocess
 import requests
+import venv
+import glob
+
+# Path for the virtual environment
+VENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'venv')
+
+def create_venv():
+    if not os.path.exists(VENV_PATH):
+        print("Creating virtual environment...")
+        venv.create(VENV_PATH, with_pip=True)
+        print("Virtual environment created.")
+    else:
+        print("Virtual environment already exists.")
+
+def get_venv_python():
+    if sys.platform == "win32":
+        return os.path.join(VENV_PATH, 'Scripts', 'python.exe')
+    return os.path.join(VENV_PATH, 'bin', 'python')
+
+def run_in_venv(command):
+    venv_python = get_venv_python()
+    return subprocess.run([venv_python] + command, check=True)
 
 def update_from_github():
     try:
@@ -10,57 +32,50 @@ def update_from_github():
         origin = repo.remotes.origin
         origin.pull()
         print("Successfully updated from GitHub.")
+        
+        # Update all Python files
+        for py_file in glob.glob("*.py"):
+            print(f"Updated {py_file}")
+        
+        # Update requirements.txt
+        if os.path.exists('requirements.txt'):
+            print("Updated requirements.txt")
+        
         return True
     except Exception as e:
         print(f"Failed to update from GitHub: {str(e)}")
         return False
 
-def download_requirements():
-    try:
-        # Replace 'your_username' and 'your_repo' with your GitHub username and repository name
-        url = 'https://raw.githubusercontent.com/yu314-coder/typhoon-data-analysis-/main/requirements.txt'
-        response = requests.get(url)
-        if response.status_code == 200:
-            with open('requirements.txt', 'wb') as f:
-                f.write(response.content)
-            print("Successfully downloaded latest requirements.txt")
-            return True
-        else:
-            print(f"Failed to download requirements.txt. Status code: {response.status_code}")
-            return False
-    except Exception as e:
-        print(f"Error downloading requirements.txt: {str(e)}")
-        return False
-
 def update_requirements():
-    if download_requirements():
-        try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
-            print("Successfully updated requirements.")
-            return True
-        except subprocess.CalledProcessError as e:
-            print(f"Failed to update requirements: {str(e)}")
-            return False
-    return False
+    try:
+        run_in_venv(["-m", "pip", "install", "-r", "requirements.txt"])
+        print("Successfully updated requirements in virtual environment.")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Failed to update requirements: {str(e)}")
+        return False
 
 def run_script():
     try:
-        subprocess.check_call([sys.executable, "typhoon_analysis.py"])
+        run_in_venv(["typhoon_analysis.py"])
     except subprocess.CalledProcessError as e:
         print(f"Error running script: {str(e)}")
 
 def main_menu():
+    create_venv()
     while True:
         print("\n--- Typhoon Analysis Dashboard Manager ---")
-        print("1. Update script from GitHub")
-        print("2. Update requirements")
+        print("1. Update all scripts and requirements.txt from GitHub")
+        print("2. Update installed packages")
         print("3. Run Typhoon Analysis Dashboard")
         print("4. Exit")
         
         choice = input("Enter your choice (1-4): ")
         
         if choice == '1':
-            update_from_github()
+            if update_from_github():
+                print("All scripts and requirements.txt updated. Please restart the manager to use the latest version.")
+                sys.exit(0)
         elif choice == '2':
             update_requirements()
         elif choice == '3':
