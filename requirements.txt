@@ -14,3 +14,4 @@ networkx==2.8.8
 xarray==2022.12.0
 shapely==1.8.5
 pyproj==3.3.0
+cartopy==0.23.0
