@@ -5,11 +5,10 @@ numpy==1.22.4
 scipy==1.10.1
 scikit-learn==1.2.2
 cachetools==5.3.0
-tropycal==0.4.1
+tropycal==0.3.1
 pyshp==2.3.1
 gitpython==3.1.30
 requests==2.28.1
-argparse==1.4.0
 matplotlib==3.5.3
 networkx==2.8.8
 xarray==2022.12.0
