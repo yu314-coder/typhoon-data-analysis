@@ -6,6 +6,7 @@ scipy==1.10.1
 scikit-learn==1.2.2
 cachetools==5.3.0
 tropycal==0.4.1
+shapely
 pyshp
 matplotlib
 requests
