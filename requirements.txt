@@ -1,3 +1,4 @@
+
 dash==2.8.1
 plotly==5.13.0
 pandas==1.5.3
@@ -12,3 +13,4 @@ matplotlib
 requests
 networkx
 xarray
+gitpython 
