@@ -278,6 +278,11 @@ app.layout = html.Div([
     ]),
     
     html.Div([
+        html.Button('Show Clusters', id='show-clusters-button', n_clicks=0),
+        html.Button('Show Typhoon Routes', id='show-routes-button', n_clicks=0),
+    ]),
+    
+    html.Div([
         html.Div(id='correlation-coefficient'),
         html.Div(id='max-wind-speed'),
         html.Div(id='min-pressure'),
@@ -524,6 +529,8 @@ def create_typhoon_path_figure(storm, selected_year):
      Output('cluster-info', 'children')],
     [Input('analyze-button', 'n_clicks'),
      Input('find-typhoon-button', 'n_clicks'),
+     Input('show-clusters-button', 'n_clicks'),
+     Input('show-routes-button', 'n_clicks'),
      Input('year-dropdown', 'value'),
      Input('typhoon-dropdown', 'value')],
     [State('start-year', 'value'),
@@ -534,9 +541,9 @@ def create_typhoon_path_figure(storm, selected_year):
      State('enso-dropdown', 'value'),
      State('typhoon-search', 'value')]
 )
-def update_graphs(analyze_clicks, find_typhoon_clicks, selected_year, selected_typhoon,
-                  start_year, start_month, end_year, end_month, n_clusters, enso_value, 
-                  typhoon_search):
+def update_graphs(analyze_clicks, find_typhoon_clicks, show_clusters_clicks, show_routes_clicks,
+                  selected_year, selected_typhoon, start_year, start_month, end_year, end_month,
+                  n_clusters, enso_value, typhoon_search):
     ctx = dash.callback_context
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
@@ -740,6 +747,7 @@ def update_graphs(analyze_clicks, find_typhoon_clicks, selected_year, selected_t
             line=dict(width=1, color='lightgray'),
             showlegend=False,
             hoverinfo='none',
+            visible=(button_id == 'show-routes-button')
         ))
 
     for i in range(n_clusters):
@@ -750,6 +758,7 @@ def update_graphs(analyze_clicks, find_typhoon_clicks, selected_year, selected_t
             mode='lines',
             name=f'Cluster {i+1}',
             line=dict(width=3),
+            visible=(button_id == 'show-clusters-button')
         ))
 
     fig_routes.update_layout(
