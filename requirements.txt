@@ -14,3 +14,4 @@ requests
 networkx
 xarray
 gitpython 
+cartopy
