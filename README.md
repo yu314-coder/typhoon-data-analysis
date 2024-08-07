@@ -25,15 +25,18 @@ Follow these steps to set up and run the Typhoon Analysis Dashboard:
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yu314-coder/typhoon-analysis-dashboard.git
+   git clone https://github.com/yu314-coder/typhoon-data-analysis.git
    ```
 
 2. Navigate to the project directory:
    ```bash
    cd typhoon-analysis-dashboard
    ```
-
-3. Run the management script:
+3.install gitpython (if you don't have previous)
+   ```bash
+   pip install gitpython
+   ```
+4. Run the management script:
    
    For Linux:
    ```bash
@@ -45,11 +48,11 @@ Follow these steps to set up and run the Typhoon Analysis Dashboard:
    python manage.py
    ```
 
-4. In the management script menu, select option 2 to download and install the required libraries.
+5. In the management script menu, select option 2 to download and install the required libraries.
 
-5. After the installation is complete, select option 3 to run the script.
+6. After the installation is complete, select option 3 to run the script.
 
-6. The script will provide a Dash link. Open this link in your web browser to access the Typhoon Analysis Dashboard.
+7. The script will provide a Dash link. Open this link in your web browser to access the Typhoon Analysis Dashboard.
 
 ## Updating the Project
 
