@@ -1,3 +1,6 @@
+Certainly! Here's the full README.md with all the changes incorporated:
+
+```markdown
 # Typhoon Analysis Dashboard
 
 This project is a Dash-based web application for analyzing typhoon data in the West Pacific region. It provides various visualizations and analyses of typhoon tracks, wind speeds, pressures, and their relationships with the Oceanic Niño Index (ONI).
@@ -20,13 +23,27 @@ This project is a Dash-based web application for analyzing typhoon data in the W
 Follow these steps to set up and run the Typhoon Analysis Dashboard:
 
 1. Clone the repository:
+   ```bash
    git clone https://github.com/yu314-coder/typhoon-analysis-dashboard.git
+   ```
+
 2. Navigate to the project directory:
+   ```bash
    cd typhoon-analysis-dashboard
-3. Run the management script(for linux):
+   ```
+
+3. Run the management script:
+   
+   For Linux:
+   ```bash
    python3 manage.py
-or
-   python manage.py (for windows)
+   ```
+   
+   For Windows:
+   ```bash
+   python manage.py
+   ```
+
 4. In the management script menu, select option 2 to download and install the required libraries.
 
 5. After the installation is complete, select option 3 to run the script.
@@ -36,6 +53,9 @@ or
 ## Updating the Project
 
 To update the project with the latest changes:
+
+1. Run the management script as shown in step 3 of Installation and Usage.
+
 2. Select option 1 to update all scripts and requirements from GitHub.
 
 3. After updating, select option 2 again to ensure all required libraries are up to date.
@@ -58,9 +78,27 @@ This project is open source and available under the [MIT License](LICENSE).
 If you encounter any issues:
 
 1. Ensure your Python version is 3.10 or higher:
-python3 --version
-Copy
-2. If you're having issues with specific libraries, try updating them manually:
-copy(pip install --upgrade [library-name])
-   
+   ```bash
+   python3 --version
+   ```
 
+2. If you're having issues with specific libraries, try updating them manually:
+   ```bash
+   pip install --upgrade [library-name]
+   ```
+
+3. If problems persist, please open an issue on the GitHub repository with details of the error and your system configuration.
+```
+
+This README.md now includes:
+
+1. A clear introduction and feature list
+2. Prerequisites for running the project
+3. Step-by-step installation and usage instructions with easily copyable code blocks
+4. Instructions for updating the project
+5. Information about data sources
+6. Guidelines for contributing
+7. License information
+8. Troubleshooting tips
+
+You can now use this as your full README.md file in your project repository. It provides a comprehensive guide for users to set up, use, and troubleshoot your Typhoon Analysis Dashboard.
