@@ -38,10 +38,10 @@ CACHE_FILE = 'ibtracs_cache.pkl'
 CACHE_EXPIRY_DAYS = 1
 
 color_map = {
-    '強烈颱風': 'rgb(255, 0, 0)',
-    '中度颱風': 'rgb(255, 165, 0)',
-    '輕度颱風': 'rgb(255, 255, 0)',
-    '熱帶性低氣壓': 'rgb(0, 255, 255)'
+    'Severe Typhoon': 'rgb(255, 0, 0)',
+    'Moderate Typhoon': 'rgb(255, 165, 0)',
+    'Mild Typhoon': 'rgb(255, 255, 0)',
+    'Tropical Depression': 'rgb(0, 255, 255)'
 }
 
 def load_ibtracs_data():
@@ -85,15 +85,15 @@ def cache_key_generator(*args, **kwargs):
     return key.hexdigest()
 
 def categorize_typhoon(wind_speed):
-    wind_speed_kt = wind_speed / 2.526992  # Convert m/s to kt
+    wind_speed_kt = wind_speed / 1.94384  # Convert m/s to kt
     if wind_speed_kt >= 51:
-        return '強烈颱風'
+        return 'Severe Typhoon'
     elif wind_speed_kt >= 32.7:
-        return '中度颱風'
+        return 'Moderate Typhoon'
     elif wind_speed_kt >= 17.2:
-        return '輕度颱風'
+        return 'Mild Typhoon'
     else:
-        return '熱帶性低氣壓'
+        return 'Tropical Depression'
 
 @functools.lru_cache(maxsize=None)
 def process_oni_data_cached(oni_data_hash):
@@ -313,8 +313,16 @@ app.layout = html.Div([
     
     html.H2("Typhoon Path Analysis"),
     html.Div([
-        dcc.Dropdown(id='year-dropdown', style={'width': '200px'}),
-        dcc.Dropdown(id='typhoon-dropdown', style={'width': '300px'})
+        dcc.Dropdown(
+            id='year-dropdown',
+            options=[{'label': str(year), 'value': year} for year in range(1950, 2025)],
+            value=2024,
+            style={'width': '200px'}
+        ),
+        dcc.Dropdown(
+            id='typhoon-dropdown',
+            style={'width': '300px'}
+        )
     ],style={'display': 'flex', 'gap': '10px'}),
     
     dcc.Graph(id='typhoon-path-animation'),
@@ -382,7 +390,7 @@ def create_typhoon_path_figure(storm, selected_year):
             lat=storm.lat,
             mode='lines',
             line=dict(width=2, color='gray'),
-            name='路徑',
+            name='Path',
             showlegend=False,
         )
     )
@@ -393,7 +401,7 @@ def create_typhoon_path_figure(storm, selected_year):
             lat=[storm.lat[0]],
             mode='markers',
             marker=dict(size=10, color='green', symbol='star'),
-            name='起始點',
+            name='Starting Point',
             text=storm.time[0].strftime('%Y-%m-%d %H:%M'),
             hoverinfo='text+name',
         )
@@ -421,7 +429,7 @@ def create_typhoon_path_figure(storm, selected_year):
                 lat=storm.lat[:i+1],
                 mode='lines',
                 line=dict(width=2, color='blue'),
-                name='已經過路徑',
+                name='Path Traveled',
                 showlegend=False,
             ),
             go.Scattergeo(
@@ -432,10 +440,10 @@ def create_typhoon_path_figure(storm, selected_year):
                 text=category,
                 textposition="top center",
                 textfont=dict(size=12, color=color),
-                name='當前位置',
+                name='Current Location',
                 hovertext=f"{storm.time[i].strftime('%Y-%m-%d %H:%M')}<br>"
-                          f"分類: {category}<br>"
-                          f"風速: {storm.vmax[i]:.1f} m/s<br>"
+                          f"Category: {category}<br>"
+                          f"Wind Speed: {storm.vmax[i]:.1f} m/s<br>"
                           f"{radius_info}",
                 hoverinfo='text',
             ),
@@ -445,7 +453,7 @@ def create_typhoon_path_figure(storm, selected_year):
     fig.frames = frames
 
     fig.update_layout(
-        title=f"{selected_year} 年 {storm.name} 颱風路徑",
+        title=f"{selected_year} Year {storm.name} Typhoon Path",
         showlegend=False,
         geo=dict(
             projection_type='natural earth',
@@ -462,14 +470,14 @@ def create_typhoon_path_figure(storm, selected_year):
                     "args": [None, {"frame": {"duration": 100, "redraw": True},
                                     "fromcurrent": True,
                                     "transition": {"duration": 0}}],
-                    "label": "播放",
+                    "label": "Play",
                     "method": "animate"
                 },
                 {
                     "args": [[None], {"frame": {"duration": 0, "redraw": True},
                                       "mode": "immediate",
                                       "transition": {"duration": 0}}],
-                    "label": "暫停",
+                    "label": "Pause",
                     "method": "animate"
                 }
             ],
@@ -488,7 +496,7 @@ def create_typhoon_path_figure(storm, selected_year):
             "xanchor": "left",
             "currentvalue": {
                 "font": {"size": 20},
-                "prefix": "時間: ",
+                "prefix": "Time: ",
                 "visible": True,
                 "xanchor": "right"
             },
