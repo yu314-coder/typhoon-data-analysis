@@ -85,7 +85,7 @@ def cache_key_generator(*args, **kwargs):
     return key.hexdigest()
 
 def categorize_typhoon(wind_speed):
-    wind_speed_kt = wind_speed / 1.94384  # Convert m/s to kt
+    wind_speed_kt = wind_speed / 2.526992  # Convert m/s to kt
     if wind_speed_kt >= 51:
         return '強烈颱風'
     elif wind_speed_kt >= 32.7:
