@@ -89,17 +89,3 @@ If you encounter any issues:
    ```
 
 3. If problems persist, please open an issue on the GitHub repository with details of the error and your system configuration.
-```
-
-This README.md now includes:
-
-1. A clear introduction and feature list
-2. Prerequisites for running the project
-3. Step-by-step installation and usage instructions with easily copyable code blocks
-4. Instructions for updating the project
-5. Information about data sources
-6. Guidelines for contributing
-7. License information
-8. Troubleshooting tips
-
-You can now use this as your full README.md file in your project repository. It provides a comprehensive guide for users to set up, use, and troubleshoot your Typhoon Analysis Dashboard.
