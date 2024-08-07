@@ -21,6 +21,7 @@ This project is a Dash-based web application for analyzing typhoon data in the W
 ## Installation and Usage
 
 Follow these steps to set up and run the Typhoon Analysis Dashboard:
+```
 
 1. Clone the repository:
    ```bash
