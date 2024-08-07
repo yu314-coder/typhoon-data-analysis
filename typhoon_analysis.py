@@ -258,7 +258,8 @@ app.layout = html.Div([
         dcc.Input(id='start-month', type='number', placeholder='Start Month', value=1, min=1, max=12, step=1),
         dcc.Input(id='end-year', type='number', placeholder='End Year', value=2024, min=1900, max=2024, step=1),
         dcc.Input(id='end-month', type='number', placeholder='End Month', value=12, min=1, max=12, step=1),
-        dcc.Input(id='n-clusters', type='number', placeholder='Number of Clusters', value=5, min=1, max=20, step=1),
+        #html.H3("Number of Clusters"),
+        #dcc.Input(id='n-clusters', type='number', placeholder='Number of Clusters', value=5, min=1, max=20, step=1),
         dcc.Dropdown(
             id='enso-dropdown',
             options=[
@@ -278,17 +279,19 @@ app.layout = html.Div([
     ]),
     
     html.Div([
-        html.Button('Show Clusters', id='show-clusters-button', n_clicks=0),
-        html.Button('Show Typhoon Routes', id='show-routes-button', n_clicks=0),
-    ]),
-    
-    html.Div([
         html.Div(id='correlation-coefficient'),
         html.Div(id='max-wind-speed'),
         html.Div(id='min-pressure'),
     ]),
     
     dcc.Graph(id='typhoon-tracks-graph'),
+    html.Div([
+        html.P("Number of Clusters"),
+		dcc.Input(id='n-clusters', type='number', placeholder='Number of Clusters', value=5, min=1, max=20, step=1),
+		html.Button('Show Clusters', id='show-clusters-button', n_clicks=0),
+        html.Button('Show Typhoon Routes', id='show-routes-button', n_clicks=0),
+    ]),
+
     dcc.Graph(id='typhoon-routes-graph'),
     dcc.Graph(id='all-years-regression-graph'),
     dcc.Graph(id='wind-oni-scatter-plot'),
