@@ -191,6 +191,8 @@ def fetch_oni_data_from_csv(file_path):
     return df
 
 def classify_enso_phases(oni_value):
+    if isinstance(oni_value, pd.Series):
+        oni_value = oni_value.iloc[0]
     if oni_value >= 0.5:
         return 'El Nino'
     elif oni_value <= -0.5:
@@ -258,8 +260,6 @@ app.layout = html.Div([
         dcc.Input(id='start-month', type='number', placeholder='Start Month', value=1, min=1, max=12, step=1),
         dcc.Input(id='end-year', type='number', placeholder='End Year', value=2024, min=1900, max=2024, step=1),
         dcc.Input(id='end-month', type='number', placeholder='End Month', value=12, min=1, max=12, step=1),
-        #html.H3("Number of Clusters"),
-        #dcc.Input(id='n-clusters', type='number', placeholder='Number of Clusters', value=5, min=1, max=20, step=1),
         dcc.Dropdown(
             id='enso-dropdown',
             options=[
@@ -287,8 +287,8 @@ app.layout = html.Div([
     dcc.Graph(id='typhoon-tracks-graph'),
     html.Div([
         html.P("Number of Clusters"),
-		dcc.Input(id='n-clusters', type='number', placeholder='Number of Clusters', value=5, min=1, max=20, step=1),
-		html.Button('Show Clusters', id='show-clusters-button', n_clicks=0),
+        dcc.Input(id='n-clusters', type='number', placeholder='Number of Clusters', value=5, min=1, max=20, step=1),
+        html.Button('Show Clusters', id='show-clusters-button', n_clicks=0),
         html.Button('Show Typhoon Routes', id='show-routes-button', n_clicks=0),
     ]),
 
@@ -729,9 +729,19 @@ def update_graphs(analyze_clicks, find_typhoon_clicks, show_clusters_clicks, sho
         season = ibtracs.get_season(year)
         for storm_id in season.summary()['id']:
             storm = get_storm_data(storm_id)
-            lons, lats = filter_west_pacific_coordinates(np.array(storm.lon), np.array(storm.lat))
-            if len(lons) > 1:  # Ensure the storm has a valid path in West Pacific
-                west_pacific_storms.append((lons, lats))
+            storm_date = storm.time[0]
+            storm_oni = oni_df.loc[storm_date.strftime('%Y-%b')]['ONI']
+            if isinstance(storm_oni, pd.Series):
+                storm_oni = storm_oni.iloc[0]
+            storm_phase = classify_enso_phases(storm_oni)
+            
+            if enso_value == 'all' or \
+               (enso_value == 'el_nino' and storm_phase == 'El Nino') or \
+               (enso_value == 'la_nina' and storm_phase == 'La Nina') or \
+               (enso_value == 'neutral' and storm_phase == 'Neutral'):
+                lons, lats = filter_west_pacific_coordinates(np.array(storm.lon), np.array(storm.lat))
+                if len(lons) > 1:  # Ensure the storm has a valid path in West Pacific
+                    west_pacific_storms.append((lons, lats))
 
     max_length = max(len(storm[0]) for storm in west_pacific_storms)
     standardized_routes = []
@@ -772,8 +782,14 @@ def update_graphs(analyze_clicks, find_typhoon_clicks, show_clusters_clicks, sho
             visible=(button_id == 'show-clusters-button')
         ))
 
+    enso_phase_text = {
+        'all': 'All Years',
+        'el_nino': 'El Niño Years',
+        'la_nina': 'La Niña Years',
+        'neutral': 'Neutral Years'
+    }
     fig_routes.update_layout(
-        title=f'Typhoon Routes Clustering in West Pacific ({start_year}-{end_year})',
+        title=f'Typhoon Routes Clustering in West Pacific ({start_year}-{end_year}) - {enso_phase_text[enso_value]}',
         geo=dict(
             projection_type='mercator',
             showland=True,
