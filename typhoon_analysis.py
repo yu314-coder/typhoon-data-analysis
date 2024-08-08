@@ -123,6 +123,7 @@ def process_typhoon_data(typhoon_data):
     typhoon_data['ISO_TIME'] = pd.to_datetime(typhoon_data['ISO_TIME'], errors='coerce')
     typhoon_data['USA_WIND'] = pd.to_numeric(typhoon_data['USA_WIND'], errors='coerce')
     typhoon_data['USA_PRES'] = pd.to_numeric(typhoon_data['USA_PRES'], errors='coerce')
+    typhoon_data['LON'] = pd.to_numeric(typhoon_data['LON'], errors='coerce')
     
     typhoon_max = typhoon_data.groupby('SID').agg({
         'USA_WIND': 'max',
@@ -343,6 +344,11 @@ app.layout = html.Div([
         html.Div(id='concentrated-months-analysis'),
     ]),
     html.Div(id='cluster-info'),
+    html.Div([
+        html.Button('Wind Speed Logistic Regression', id='wind-regression-button', n_clicks=0),
+        html.Button('Pressure Logistic Regression', id='pressure-regression-button', n_clicks=0),
+        html.Button('Longitude Logistic Regression', id='longitude-regression-button', n_clicks=0),
+    ]),
     html.Div(id='logistic-regression-results'),
     
     html.H2("Typhoon Path Analysis"),
@@ -571,14 +577,11 @@ def create_typhoon_path_figure(storm, selected_year):
      Output('pressure-oni-correlation', 'children'),
      Output('typhoon-count-analysis', 'children'),
      Output('concentrated-months-analysis', 'children'),
-     Output('cluster-info', 'children'),
-     Output('logistic-regression-results', 'children')],
+     Output('cluster-info', 'children')],
     [Input('analyze-button', 'n_clicks'),
      Input('find-typhoon-button', 'n_clicks'),
      Input('show-clusters-button', 'n_clicks'),
-     Input('show-routes-button', 'n_clicks'),
-     Input('year-dropdown', 'value'),
-     Input('typhoon-dropdown', 'value')],
+     Input('show-routes-button', 'n_clicks')],
     [State('start-year', 'value'),
      State('start-month', 'value'),
      State('end-year', 'value'),
@@ -588,7 +591,7 @@ def create_typhoon_path_figure(storm, selected_year):
      State('typhoon-search', 'value')]
 )
 def update_graphs(analyze_clicks, find_typhoon_clicks, show_clusters_clicks, show_routes_clicks,
-                  selected_year, selected_typhoon, start_year, start_month, end_year, end_month,
+                  start_year, start_month, end_year, end_month,
                   n_clusters, enso_value, typhoon_search):
     ctx = dash.callback_context
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
@@ -724,24 +727,6 @@ def update_graphs(analyze_clicks, find_typhoon_clicks, show_clusters_clicks, sho
           (merged_data['Month'].astype(int) >= start_month) & 
           (merged_data['Month'].astype(int) <= end_month)
     ]
-    
-    beta_1, odds_ratio, p_value = calculate_logistic_regression(filtered_data)
-
-    logistic_regression_results = html.Div([
-        html.H3("Logistic Regression Analysis: El Niño Effect on Severe Typhoons"),
-        html.P(f"Coefficient (β): {beta_1:.4f}"),
-        html.P(f"Odds Ratio: {odds_ratio:.4f}"),
-        html.P(f"P-value: {p_value:.4f}"),
-        html.P(f"Interpretation:", style={'fontWeight': 'bold'}),
-        html.Ul([
-            html.Li(f"The odds of a severe typhoon during El Niño conditions are "
-                    f"{'increased' if odds_ratio > 1 else 'decreased'} by a factor of {odds_ratio:.2f}."),
-            html.Li(f"This effect is {'statistically significant' if p_value < 0.05 else 'not statistically significant'} "
-                    f"at the 0.05 level."),
-            html.Li("An Odds Ratio > 1 indicates higher odds of severe typhoons during El Niño conditions."),
-            html.Li("An Odds Ratio < 1 indicates lower odds of severe typhoons during El Niño conditions.")
-        ])
-    ])
     
     wind_oni_scatter = px.scatter(filtered_data, x='ONI', y='USA_WIND', color='Category',
                                   hover_data=['NAME', 'Year','Category'],
@@ -881,7 +866,160 @@ def update_graphs(analyze_clicks, find_typhoon_clicks, show_clusters_clicks, sho
             wind_oni_scatter, pressure_oni_scatter,
             correlation_text, max_wind_speed_text, min_pressure_text,
             "Wind-ONI correlation: See logistic regression results", "Pressure-ONI correlation: See logistic regression results",
-            count_analysis, month_analysis, cluster_info, logistic_regression_results)
+            count_analysis, month_analysis, cluster_info)
+
+@app.callback(
+    Output('logistic-regression-results', 'children'),
+    [Input('wind-regression-button', 'n_clicks'),
+     Input('pressure-regression-button', 'n_clicks'),
+     Input('longitude-regression-button', 'n_clicks')],
+    [State('start-year', 'value'),
+     State('start-month', 'value'),
+     State('end-year', 'value'),
+     State('end-month', 'value')]
+)
+def update_logistic_regression(wind_clicks, pressure_clicks, longitude_clicks, 
+                               start_year, start_month, end_year, end_month):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return "Click a button to see logistic regression results."
+    
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    start_date = datetime(start_year, start_month, 1)
+    end_date = datetime(end_year, end_month, 28)
+    
+    filtered_data = merged_data[
+        (merged_data['ISO_TIME'] >= start_date) & 
+        (merged_data['ISO_TIME'] <= end_date)
+    ]
+    
+    if button_id == 'wind-regression-button':
+        return calculate_wind_logistic_regression(filtered_data)
+    elif button_id == 'pressure-regression-button':
+        return calculate_pressure_logistic_regression(filtered_data)
+    elif button_id == 'longitude-regression-button':
+        return calculate_longitude_logistic_regression(filtered_data)
+
+def calculate_wind_logistic_regression(data):
+    data['severe_typhoon'] = (data['USA_WIND'] >= 64).astype(int)  # 64 knots threshold for severe typhoons
+    X = sm.add_constant(data['ONI'])
+    y = data['severe_typhoon']
+    model = sm.Logit(y, X).fit()
+    
+    beta_1 = model.params['ONI']
+    exp_beta_1 = np.exp(beta_1)
+    p_value = model.pvalues['ONI']
+    
+    el_nino_data = data[data['ONI'] >= 0.5]
+    la_nina_data = data[data['ONI'] <= -0.5]
+    neutral_data = data[(data['ONI'] > -0.5) & (data['ONI'] < 0.5)]
+    
+    el_nino_severe = el_nino_data['severe_typhoon'].mean()
+    la_nina_severe = la_nina_data['severe_typhoon'].mean()
+    neutral_severe = neutral_data['severe_typhoon'].mean()
+    
+    return html.Div([
+        html.H3("Wind Speed Logistic Regression Results"),
+        html.P(f"β1 (ONI coefficient): {beta_1:.4f}"),
+        html.P(f"exp(β1) (Odds Ratio): {exp_beta_1:.4f}"),
+        html.P(f"P-value: {p_value:.4f}"),
+        html.P("Interpretation:"),
+        html.Ul([
+            html.Li(f"For each unit increase in ONI, the odds of a severe typhoon are "
+                    f"{'increased' if exp_beta_1 > 1 else 'decreased'} by a factor of {exp_beta_1:.2f}."),
+            html.Li(f"This effect is {'statistically significant' if p_value < 0.05 else 'not statistically significant'} "
+                    f"at the 0.05 level.")
+        ]),
+        html.P("Proportion of severe typhoons:"),
+        html.Ul([
+            html.Li(f"El Niño conditions: {el_nino_severe:.2%}"),
+            html.Li(f"La Niña conditions: {la_nina_severe:.2%}"),
+            html.Li(f"Neutral conditions: {neutral_severe:.2%}")
+        ])
+    ])
+
+def calculate_pressure_logistic_regression(data):
+    data['intense_typhoon'] = (data['USA_PRES'] <= 950).astype(int)  # 950 hPa threshold for intense typhoons
+    X = sm.add_constant(data['ONI'])
+    y = data['intense_typhoon']
+    model = sm.Logit(y, X).fit()
+    
+    beta_1 = model.params['ONI']
+    exp_beta_1 = np.exp(beta_1)
+    p_value = model.pvalues['ONI']
+    
+    el_nino_data = data[data['ONI'] >= 0.5]
+    la_nina_data = data[data['ONI'] <= -0.5]
+    neutral_data = data[(data['ONI'] > -0.5) & (data['ONI'] < 0.5)]
+    
+    el_nino_intense = el_nino_data['intense_typhoon'].mean()
+    la_nina_intense = la_nina_data['intense_typhoon'].mean()
+    neutral_intense = neutral_data['intense_typhoon'].mean()
+    
+    return html.Div([
+        html.H3("Pressure Logistic Regression Results"),
+        html.P(f"β1 (ONI coefficient): {beta_1:.4f}"),
+        html.P(f"exp(β1) (Odds Ratio): {exp_beta_1:.4f}"),
+        html.P(f"P-value: {p_value:.4f}"),
+        html.P("Interpretation:"),
+        html.Ul([
+            html.Li(f"For each unit increase in ONI, the odds of an intense typhoon (pressure <= 950 hPa) are "
+                    f"{'increased' if exp_beta_1 > 1 else 'decreased'} by a factor of {exp_beta_1:.2f}."),
+            html.Li(f"This effect is {'statistically significant' if p_value < 0.05 else 'not statistically significant'} "
+                    f"at the 0.05 level.")
+        ]),
+        html.P("Proportion of intense typhoons:"),
+        html.Ul([
+            html.Li(f"El Niño conditions: {el_nino_intense:.2%}"),
+            html.Li(f"La Niña conditions: {la_nina_intense:.2%}"),
+            html.Li(f"Neutral conditions: {neutral_intense:.2%}")
+        ])
+    ])
+
+def calculate_longitude_logistic_regression(data):
+    # Use only the data points where longitude is available
+    data = data.dropna(subset=['LON'])
+    
+    if len(data) == 0:
+        return html.Div("Insufficient data for longitude analysis")
+    
+    data['western_typhoon'] = (data['LON'] <= 140).astype(int)  # 140°E as threshold for western typhoons
+    X = sm.add_constant(data['ONI'])
+    y = data['western_typhoon']
+    model = sm.Logit(y, X).fit()
+    
+    beta_1 = model.params['ONI']
+    exp_beta_1 = np.exp(beta_1)
+    p_value = model.pvalues['ONI']
+    
+    el_nino_data = data[data['ONI'] >= 0.5]
+    la_nina_data = data[data['ONI'] <= -0.5]
+    neutral_data = data[(data['ONI'] > -0.5) & (data['ONI'] < 0.5)]
+    
+    el_nino_western = el_nino_data['western_typhoon'].mean()
+    la_nina_western = la_nina_data['western_typhoon'].mean()
+    neutral_western = neutral_data['western_typhoon'].mean()
+    
+    return html.Div([
+        html.H3("Longitude Logistic Regression Results"),
+        html.P(f"β1 (ONI coefficient): {beta_1:.4f}"),
+        html.P(f"exp(β1) (Odds Ratio): {exp_beta_1:.4f}"),
+        html.P(f"P-value: {p_value:.4f}"),
+        html.P("Interpretation:"),
+        html.Ul([
+            html.Li(f"For each unit increase in ONI, the odds of a typhoon forming west of 140°E are "
+                    f"{'increased' if exp_beta_1 > 1 else 'decreased'} by a factor of {exp_beta_1:.2f}."),
+            html.Li(f"This effect is {'statistically significant' if p_value < 0.05 else 'not statistically significant'} "
+                    f"at the 0.05 level.")
+        ]),
+        html.P("Proportion of typhoons forming west of 140°E:"),
+        html.Ul([
+            html.Li(f"El Niño conditions: {el_nino_western:.2%}"),
+            html.Li(f"La Niña conditions: {la_nina_western:.2%}"),
+            html.Li(f"Neutral conditions: {neutral_western:.2%}")
+        ])
+    ])
 
 if __name__ == "__main__":
     print(f"Using data path: {DATA_PATH}")
