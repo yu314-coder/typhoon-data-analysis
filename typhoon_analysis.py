@@ -23,6 +23,7 @@ from scipy.interpolate import interp1d
 from fractions import Fraction
 from concurrent.futures import ThreadPoolExecutor
 from sklearn.metrics import mean_squared_error
+import statsmodels.api as sm
 
 # Add command-line argument parsing
 parser = argparse.ArgumentParser(description='Typhoon Analysis Dashboard')
@@ -145,42 +146,26 @@ def process_typhoon_data_with_cache(typhoon_data):
 def merge_data(oni_long, typhoon_max):
     return pd.merge(typhoon_max, oni_long, on=['Year', 'Month'])
 
-def sigmoid(z):
-    return 1 / (1 + np.exp(-z))
-
-def logistic_regression_cost(theta, X, y):
-    m = len(y)
-    h = sigmoid(X @ theta)
-    cost = (-1/m) * np.sum(y * np.log(h) + (1-y) * np.log(1-h))
-    return cost
-
-def logistic_regression_gradient(theta, X, y):
-    m = len(y)
-    h = sigmoid(X @ theta)
-    grad = (1/m) * X.T @ (h - y)
-    return grad
-
-def calculate_correlations(merged_data):
-    data = merged_data.dropna(subset=['USA_WIND', 'USA_PRES', 'ONI'])
+def calculate_logistic_regression(merged_data):
+    data = merged_data.dropna(subset=['USA_WIND', 'ONI'])
     
-    def logistic_regression_score(X, y):
-        X = np.column_stack((np.ones(X.shape[0]), X))
-        y_binary = (y > np.median(y)).astype(int)
-        
-        initial_theta = np.zeros(X.shape[1])
-        res = minimize(logistic_regression_cost, initial_theta, args=(X, y_binary),
-                       method='BFGS', jac=logistic_regression_gradient)
-        
-        theta = res.x
-        predictions = sigmoid(X @ theta) >= 0.5
-        accuracy = np.mean(predictions == y_binary)
-        
-        return accuracy, theta[1]
+    # Create binary outcome for severe typhoons
+    data['severe_typhoon'] = (data['USA_WIND'] >= 51).astype(int)
     
-    wind_score, wind_coef = logistic_regression_score(data['USA_WIND'].values.reshape(-1, 1), data['ONI'].values)
-    pressure_score, pressure_coef = logistic_regression_score(data['USA_PRES'].values.reshape(-1, 1), data['ONI'].values)
+    # Create binary predictor for El Niño
+    data['el_nino'] = (data['ONI'] >= 0.5).astype(int)
     
-    return wind_score, wind_coef, pressure_score, pressure_coef
+    X = data['el_nino']
+    X = sm.add_constant(X)  # Add constant term
+    y = data['severe_typhoon']
+    
+    model = sm.Logit(y, X).fit()
+    
+    beta_1 = model.params['el_nino']
+    exp_beta_1 = np.exp(beta_1)
+    p_value = model.pvalues['el_nino']
+    
+    return beta_1, exp_beta_1, p_value
 
 @cachetools.cached(cache={})
 def fetch_oni_data_from_csv(file_path):
@@ -341,21 +326,6 @@ app.layout = html.Div([
     ]),
 
     dcc.Graph(id='typhoon-routes-graph'),
-
-    html.H2("Typhoon Path Analysis"),
-    html.Div([
-        dcc.Dropdown(
-            id='year-dropdown',
-            options=[{'label': str(year), 'value': year} for year in range(1950, 2025)],
-            value=2024,
-            style={'width': '200px'}
-        ),
-        dcc.Dropdown(
-            id='typhoon-dropdown',
-            style={'width': '300px'}
-        )
-    ],style={'display': 'flex', 'gap': '10px'}),
-    
     dcc.Graph(id='all-years-regression-graph'),
     dcc.Graph(id='wind-oni-scatter-plot'),
     dcc.Graph(id='pressure-oni-scatter'),
@@ -373,6 +343,21 @@ app.layout = html.Div([
         html.Div(id='concentrated-months-analysis'),
     ]),
     html.Div(id='cluster-info'),
+    html.Div(id='logistic-regression-results'),
+    
+    html.H2("Typhoon Path Analysis"),
+    html.Div([
+        dcc.Dropdown(
+            id='year-dropdown',
+            options=[{'label': str(year), 'value': year} for year in range(1950, 2025)],
+            value=2024,
+            style={'width': '200px'}
+        ),
+        dcc.Dropdown(
+            id='typhoon-dropdown',
+            style={'width': '300px'}
+        )
+    ],style={'display': 'flex', 'gap': '10px'}),
     
     dcc.Graph(id='typhoon-path-animation'),
     
@@ -586,7 +571,8 @@ def create_typhoon_path_figure(storm, selected_year):
      Output('pressure-oni-correlation', 'children'),
      Output('typhoon-count-analysis', 'children'),
      Output('concentrated-months-analysis', 'children'),
-     Output('cluster-info', 'children')],
+     Output('cluster-info', 'children'),
+     Output('logistic-regression-results', 'children')],
     [Input('analyze-button', 'n_clicks'),
      Input('find-typhoon-button', 'n_clicks'),
      Input('show-clusters-button', 'n_clicks'),
@@ -739,10 +725,23 @@ def update_graphs(analyze_clicks, find_typhoon_clicks, show_clusters_clicks, sho
           (merged_data['Month'].astype(int) <= end_month)
     ]
     
-    wind_score, wind_coef, pressure_score, pressure_coef = calculate_correlations(filtered_data)
-    
-    wind_oni_relationship = f"Wind Speed - ONI Logistic Regression Score: {wind_score:.4f}, Coefficient: {wind_coef:.4f}"
-    pressure_oni_relationship = f"Pressure - ONI Logistic Regression Score: {pressure_score:.4f}, Coefficient: {pressure_coef:.4f}"
+    beta_1, odds_ratio, p_value = calculate_logistic_regression(filtered_data)
+
+    logistic_regression_results = html.Div([
+        html.H3("Logistic Regression Analysis: El Niño Effect on Severe Typhoons"),
+        html.P(f"Coefficient (β): {beta_1:.4f}"),
+        html.P(f"Odds Ratio: {odds_ratio:.4f}"),
+        html.P(f"P-value: {p_value:.4f}"),
+        html.P(f"Interpretation:", style={'fontWeight': 'bold'}),
+        html.Ul([
+            html.Li(f"The odds of a severe typhoon during El Niño conditions are "
+                    f"{'increased' if odds_ratio > 1 else 'decreased'} by a factor of {odds_ratio:.2f}."),
+            html.Li(f"This effect is {'statistically significant' if p_value < 0.05 else 'not statistically significant'} "
+                    f"at the 0.05 level."),
+            html.Li("An Odds Ratio > 1 indicates higher odds of severe typhoons during El Niño conditions."),
+            html.Li("An Odds Ratio < 1 indicates lower odds of severe typhoons during El Niño conditions.")
+        ])
+    ])
     
     wind_oni_scatter = px.scatter(filtered_data, x='ONI', y='USA_WIND', color='Category',
                                   hover_data=['NAME', 'Year','Category'],
@@ -870,7 +869,7 @@ def update_graphs(analyze_clicks, find_typhoon_clicks, show_clusters_clicks, sho
     min_pressure = typhoon_data[(typhoon_data['ISO_TIME'].dt.year >= start_year) & 
                                 (typhoon_data['ISO_TIME'].dt.year <= end_year)]['WMO_PRES'].min()
 
-    correlation_text = f"Logistic Regression Results: {wind_oni_relationship}, {pressure_oni_relationship}"
+    correlation_text = f"Logistic Regression Results: see below"
     max_wind_speed_text = f"Maximum Wind Speed: {max_wind_speed:.2f} knots"
     min_pressure_text = f"Minimum Pressure: {min_pressure:.2f} hPa"
 
@@ -881,8 +880,8 @@ def update_graphs(analyze_clicks, find_typhoon_clicks, show_clusters_clicks, sho
     return (fig_tracks, fig_routes, all_years_fig, regression_figs, slopes, 
             wind_oni_scatter, pressure_oni_scatter,
             correlation_text, max_wind_speed_text, min_pressure_text,
-            wind_oni_relationship, pressure_oni_relationship,
-            count_analysis, month_analysis, cluster_info)
+            "Wind-ONI correlation: See logistic regression results", "Pressure-ONI correlation: See logistic regression results",
+            count_analysis, month_analysis, cluster_info, logistic_regression_results)
 
 if __name__ == "__main__":
     print(f"Using data path: {DATA_PATH}")
