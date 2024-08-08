@@ -22,6 +22,8 @@ from sklearn.cluster import KMeans
 from scipy.interpolate import interp1d
 from fractions import Fraction
 from concurrent.futures import ThreadPoolExecutor
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.pipeline import make_pipeline
 
 # Add command-line argument parsing
 parser = argparse.ArgumentParser(description='Typhoon Analysis Dashboard')
@@ -241,6 +243,28 @@ def get_storm_data(storm_id):
 def filter_west_pacific_coordinates(lons, lats):
     mask = (100 <= lons) & (lons <= 180) & (0 <= lats) & (lats <= 40)
     return lons[mask], lats[mask]
+
+def generate_cluster_equation(cluster_center):
+    X = cluster_center[:, 0].reshape(-1, 1)  # Longitudes
+    y = cluster_center[:, 1]  # Latitudes
+    
+    # Create a polynomial features object of degree 2
+    poly_features = PolynomialFeatures(degree=2, include_bias=False)
+    
+    # Create a pipeline that first creates polynomial features, then fits a linear regression
+    model = make_pipeline(poly_features, LinearRegression())
+    
+    # Fit the model
+    model.fit(X, y)
+    
+    # Get the coefficients
+    coeffs = model.named_steps['linearregression'].coef_
+    intercept = model.named_steps['linearregression'].intercept_
+    
+    # Create a formatted string representation of the equation
+    equation = f"y = {coeffs[1]:.4f}x² + {coeffs[0]:.4f}x + {intercept:.4f}"
+    
+    return equation
 
 ibtracs = load_ibtracs_data()
 oni_data, typhoon_data = load_data(ONI_DATA_PATH, TYPHOON_DATA_PATH)
@@ -771,8 +795,12 @@ def update_graphs(analyze_clicks, find_typhoon_clicks, show_clusters_clicks, sho
             visible=(button_id == 'show-routes-button')
         ))
 
+    cluster_equations = []
     for i in range(n_clusters):
         cluster_center = kmeans.cluster_centers_[i].reshape(-1, 2)
+        equation = generate_cluster_equation(cluster_center)
+        cluster_equations.append(f"Cluster {i+1}: {equation}")
+        
         fig_routes.add_trace(go.Scattergeo(
             lon=cluster_center[:, 0],
             lat=cluster_center[:, 1],
@@ -823,6 +851,7 @@ def update_graphs(analyze_clicks, find_typhoon_clicks, show_clusters_clicks, sho
 
     cluster_counts = pd.Series(clusters).value_counts().sort_index()
     cluster_info = [html.P(f"Cluster {i+1}: {count} typhoons") for i, count in enumerate(cluster_counts)]
+    cluster_info.extend([html.P(eq) for eq in cluster_equations])
 
     return (fig_tracks, fig_routes, all_years_fig, regression_figs, slopes, 
             wind_oni_scatter, pressure_oni_scatter,
