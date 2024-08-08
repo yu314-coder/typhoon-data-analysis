@@ -16,14 +16,13 @@ from dash.exceptions import PreventUpdate
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 from scipy import stats
-from scipy.optimize import minimize
+from scipy.optimize import minimize, curve_fit
 from sklearn.linear_model import LinearRegression
 from sklearn.cluster import KMeans
 from scipy.interpolate import interp1d
 from fractions import Fraction
 from concurrent.futures import ThreadPoolExecutor
-from sklearn.preprocessing import PolynomialFeatures
-from sklearn.pipeline import make_pipeline
+from sklearn.metrics import mean_squared_error
 
 # Add command-line argument parsing
 parser = argparse.ArgumentParser(description='Typhoon Analysis Dashboard')
@@ -244,27 +243,52 @@ def filter_west_pacific_coordinates(lons, lats):
     mask = (100 <= lons) & (lons <= 180) & (0 <= lats) & (lats <= 40)
     return lons[mask], lats[mask]
 
+def polynomial_exp(x, a, b, c, d):
+    return a * x**2 + b * x + c + d * np.exp(x)
+
+def exponential(x, a, b, c):
+    return a * np.exp(b * x) + c
+
 def generate_cluster_equation(cluster_center):
-    X = cluster_center[:, 0].reshape(-1, 1)  # Longitudes
-    y = cluster_center[:, 1]  # Latitudes
+    X = cluster_center[:, 0]
+    y = cluster_center[:, 1]
     
-    # Create a polynomial features object of degree 2
-    poly_features = PolynomialFeatures(degree=2, include_bias=False)
+    models = [
+        ('Polynomial', lambda x, a, b, c: a * x**2 + b * x + c),
+        ('Exponential', exponential),
+        ('Polynomial + Exponential', polynomial_exp)
+    ]
     
-    # Create a pipeline that first creates polynomial features, then fits a linear regression
-    model = make_pipeline(poly_features, LinearRegression())
+    best_model = None
+    best_mse = float('inf')
+    best_params = None
     
-    # Fit the model
-    model.fit(X, y)
+    for name, model in models:
+        try:
+            params, _ = curve_fit(model, X, y)
+            y_pred = model(X, *params)
+            mse = mean_squared_error(y, y_pred)
+            
+            if mse < best_mse:
+                best_mse = mse
+                best_model = name
+                best_params = params
+        except:
+            continue
     
-    # Get the coefficients
-    coeffs = model.named_steps['linearregression'].coef_
-    intercept = model.named_steps['linearregression'].intercept_
+    if best_model == 'Polynomial':
+        a, b, c = best_params
+        equation = f"y = {a:.4f}x² + {b:.4f}x + {c:.4f}"
+    elif best_model == 'Exponential':
+        a, b, c = best_params
+        equation = f"y = {a:.4f} * exp({b:.4f}x) + {c:.4f}"
+    elif best_model == 'Polynomial + Exponential':
+        a, b, c, d = best_params
+        equation = f"y = {a:.4f}x² + {b:.4f}x + {c:.4f} + {d:.4f} * exp(x)"
+    else:
+        equation = "No suitable model found"
     
-    # Create a formatted string representation of the equation
-    equation = f"y = {coeffs[1]:.4f}x² + {coeffs[0]:.4f}x + {intercept:.4f}"
-    
-    return equation
+    return equation, best_model, best_params
 
 ibtracs = load_ibtracs_data()
 oni_data, typhoon_data = load_data(ONI_DATA_PATH, TYPHOON_DATA_PATH)
@@ -798,8 +822,8 @@ def update_graphs(analyze_clicks, find_typhoon_clicks, show_clusters_clicks, sho
     cluster_equations = []
     for i in range(n_clusters):
         cluster_center = kmeans.cluster_centers_[i].reshape(-1, 2)
-        equation = generate_cluster_equation(cluster_center)
-        cluster_equations.append(f"Cluster {i+1}: {equation}")
+        equation, model_name, params = generate_cluster_equation(cluster_center)
+        cluster_equations.append(f"Cluster {i+1}: {equation} (Model: {model_name})")
         
         fig_routes.add_trace(go.Scattergeo(
             lon=cluster_center[:, 0],
