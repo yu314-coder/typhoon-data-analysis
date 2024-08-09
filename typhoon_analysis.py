@@ -327,6 +327,21 @@ app.layout = html.Div([
     ]),
 
     dcc.Graph(id='typhoon-routes-graph'),
+    
+    html.H2("Typhoon Path Analysis"),
+    html.Div([
+        dcc.Dropdown(
+            id='year-dropdown',
+            options=[{'label': str(year), 'value': year} for year in range(1950, 2025)],
+            value=2024,
+            style={'width': '200px'}
+        ),
+        dcc.Dropdown(
+            id='typhoon-dropdown',
+            style={'width': '300px'}
+        )
+    ],style={'display': 'flex', 'gap': '10px'}),
+    
     dcc.Graph(id='all-years-regression-graph'),
     dcc.Graph(id='wind-oni-scatter-plot'),
     dcc.Graph(id='pressure-oni-scatter'),
@@ -350,20 +365,6 @@ app.layout = html.Div([
         html.Button('Longitude Logistic Regression', id='longitude-regression-button', n_clicks=0),
     ]),
     html.Div(id='logistic-regression-results'),
-    
-    html.H2("Typhoon Path Analysis"),
-    html.Div([
-        dcc.Dropdown(
-            id='year-dropdown',
-            options=[{'label': str(year), 'value': year} for year in range(1950, 2025)],
-            value=2024,
-            style={'width': '200px'}
-        ),
-        dcc.Dropdown(
-            id='typhoon-dropdown',
-            style={'width': '300px'}
-        )
-    ],style={'display': 'flex', 'gap': '10px'}),
     
     dcc.Graph(id='typhoon-path-animation'),
     
