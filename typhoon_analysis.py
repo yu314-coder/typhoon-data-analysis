@@ -568,7 +568,8 @@ def create_typhoon_path_figure(storm, selected_year):
 @app.callback(
     [Output('typhoon-routes-graph', 'figure'),
      Output('cluster-info', 'children')],
-    [Input('show-clusters-button', 'n_clicks'),
+    [Input('analyze-button', 'n_clicks'),
+     Input('show-clusters-button', 'n_clicks'),
      Input('show-routes-button', 'n_clicks')],
     [State('start-year', 'value'),
      State('start-month', 'value'),
@@ -578,7 +579,7 @@ def create_typhoon_path_figure(storm, selected_year):
      State('enso-dropdown', 'value')]
 )
 
-def update_route_clusters(show_clusters_clicks, show_routes_clicks,
+def update_route_clusters(analyze_clicks,show_clusters_clicks, show_routes_clicks,
                           start_year, start_month, end_year, end_month,
                           n_clusters, enso_value):
     ctx = dash.callback_context
@@ -589,7 +590,7 @@ def update_route_clusters(show_clusters_clicks, show_routes_clicks,
     
     filtered_oni_df = oni_df[(oni_df.index >= start_date) & (oni_df.index <= end_date)]
 
-    #fig_routes = go.Figure()
+    fig_routes = go.Figure()
 
     west_pacific_storms = []
     for year in range(start_year, end_year + 1):
@@ -649,7 +650,7 @@ def update_route_clusters(show_clusters_clicks, show_routes_clicks,
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
     clusters = kmeans.fit_predict(standardized_routes)
 
-    fig_routes = go.Figure()
+    #fig_routes = go.Figure()
 
     for lons, lats in west_pacific_storms:
         fig_routes.add_trace(go.Scattergeo(
