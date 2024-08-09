@@ -275,7 +275,8 @@ def generate_cluster_equation(cluster_center):
         equation = "No suitable model found"
     
     return equation, best_model, best_params
-
+    
+oni_df = fetch_oni_data_from_csv(ONI_DATA_PATH)
 ibtracs = load_ibtracs_data()
 oni_data, typhoon_data = load_data(ONI_DATA_PATH, TYPHOON_DATA_PATH)
 oni_long = process_oni_data_with_cache(oni_data)
@@ -563,10 +564,151 @@ def create_typhoon_path_figure(storm, selected_year):
     )
 
     return fig
+    
+@app.callback(
+    [Output('typhoon-routes-graph', 'figure'),
+     Output('cluster-info', 'children')],
+    [Input('show-clusters-button', 'n_clicks'),
+     Input('show-routes-button', 'n_clicks')],
+    [State('start-year', 'value'),
+     State('start-month', 'value'),
+     State('end-year', 'value'),
+     State('end-month', 'value'),
+     State('n-clusters', 'value'),
+     State('enso-dropdown', 'value')]
+)
+
+def update_route_clusters(show_clusters_clicks, show_routes_clicks,
+                          start_year, start_month, end_year, end_month,
+                          n_clusters, enso_value):
+    ctx = dash.callback_context
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    start_date = datetime(start_year, start_month, 1)
+    end_date = datetime(end_year, end_month, 28)
+    
+    filtered_oni_df = oni_df[(oni_df.index >= start_date) & (oni_df.index <= end_date)]
+
+    #fig_routes = go.Figure()
+
+    west_pacific_storms = []
+    for year in range(start_year, end_year + 1):
+        season = ibtracs.get_season(year)
+        for storm_id in season.summary()['id']:
+            storm = get_storm_data(storm_id)
+            storm_date = storm.time[0]
+            storm_oni = filtered_oni_df.loc[storm_date.strftime('%Y-%b')]['ONI']
+            if isinstance(storm_oni, pd.Series):
+                storm_oni = storm_oni.iloc[0]
+            storm_phase = classify_enso_phases(storm_oni)
+            
+            if enso_value == 'all' or \
+               (enso_value == 'el_nino' and storm_phase == 'El Nino') or \
+               (enso_value == 'la_nina' and storm_phase == 'La Nina') or \
+               (enso_value == 'neutral' and storm_phase == 'Neutral'):
+                lons, lats = filter_west_pacific_coordinates(np.array(storm.lon), np.array(storm.lat))
+                if len(lons) > 1:  # Ensure the storm has a valid path in West Pacific
+                    west_pacific_storms.append((lons, lats))
+
+    clusters = np.array([])  # Initialize as empty NumPy array
+    cluster_equations = []
+    
+    # Clustering analysis
+    west_pacific_storms = []
+    for year in range(start_year, end_year + 1):
+        season = ibtracs.get_season(year)
+        for storm_id in season.summary()['id']:
+            storm = get_storm_data(storm_id)
+            storm_date = storm.time[0]
+            storm_oni = oni_df.loc[storm_date.strftime('%Y-%b')]['ONI']
+            if isinstance(storm_oni, pd.Series):
+                storm_oni = storm_oni.iloc[0]
+            storm_phase = classify_enso_phases(storm_oni)
+            
+            if enso_value == 'all' or \
+               (enso_value == 'el_nino' and storm_phase == 'El Nino') or \
+               (enso_value == 'la_nina' and storm_phase == 'La Nina') or \
+               (enso_value == 'neutral' and storm_phase == 'Neutral'):
+                lons, lats = filter_west_pacific_coordinates(np.array(storm.lon), np.array(storm.lat))
+                if len(lons) > 1:  # Ensure the storm has a valid path in West Pacific
+                    west_pacific_storms.append((lons, lats))
+
+    max_length = max(len(storm[0]) for storm in west_pacific_storms)
+    standardized_routes = []
+    
+    for lons, lats in west_pacific_storms:
+        if len(lons) < 2:  # Skip if not enough points
+            continue
+        t = np.linspace(0, 1, len(lons))
+        t_new = np.linspace(0, 1, max_length)
+        lon_interp = interp1d(t, lons, kind='linear')(t_new)
+        lat_interp = interp1d(t, lats, kind='linear')(t_new)
+        route_vector = np.column_stack((lon_interp, lat_interp)).flatten()
+        standardized_routes.append(route_vector)
+
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    clusters = kmeans.fit_predict(standardized_routes)
+
+    fig_routes = go.Figure()
+
+    for lons, lats in west_pacific_storms:
+        fig_routes.add_trace(go.Scattergeo(
+            lon=lons, lat=lats,
+            mode='lines',
+            line=dict(width=1, color='lightgray'),
+            showlegend=False,
+            hoverinfo='none',
+            visible=(button_id == 'show-routes-button')
+        ))
+
+    cluster_equations = []
+    for i in range(n_clusters):
+        cluster_center = kmeans.cluster_centers_[i].reshape(-1, 2)
+        equation, model_name, params = generate_cluster_equation(cluster_center)
+        cluster_equations.append(f"Cluster {i+1}: {equation} (Model: {model_name})")
+        
+        fig_routes.add_trace(go.Scattergeo(
+            lon=cluster_center[:, 0],
+            lat=cluster_center[:, 1],
+            mode='lines',
+            name=f'Cluster {i+1}',
+            line=dict(width=3),
+            visible=(button_id == 'show-clusters-button')
+        ))
+
+    enso_phase_text = {
+        'all': 'All Years',
+        'el_nino': 'El Niño Years',
+        'la_nina': 'La Niña Years',
+        'neutral': 'Neutral Years'
+    }
+    fig_routes.update_layout(
+        title=f'Typhoon Routes Clustering in West Pacific ({start_year}-{end_year}) - {enso_phase_text[enso_value]}',
+        geo=dict(
+            projection_type='mercator',
+            showland=True,
+            landcolor='rgb(243, 243, 243)',
+            countrycolor='rgb(204, 204, 204)',
+            coastlinecolor='rgb(100, 100, 100)',
+            showocean=True,
+            oceancolor='rgb(230, 250, 255)',
+            lataxis={'range': [0, 40]},
+            lonaxis={'range': [100, 180]},
+            center={'lat': 20, 'lon': 140},
+        ),
+        legend_title='Clusters'
+    )
+    
+    cluster_info = []
+    if len(clusters) > 0:  # Check if clusters array is not empty
+        cluster_counts = pd.Series(clusters).value_counts().sort_index()
+        cluster_info = [html.P(f"Cluster {i+1}: {count} typhoons") for i, count in enumerate(cluster_counts)]
+        cluster_info.extend([html.P(eq) for eq in cluster_equations])
+
+    return fig_routes, cluster_info
 
 @app.callback(
     [Output('typhoon-tracks-graph', 'figure'),
-     Output('typhoon-routes-graph', 'figure'),
      Output('all-years-regression-graph', 'figure'),
      Output('regression-graphs', 'children'),
      Output('slopes', 'children'),
@@ -578,31 +720,28 @@ def create_typhoon_path_figure(storm, selected_year):
      Output('wind-oni-correlation', 'children'),
      Output('pressure-oni-correlation', 'children'),
      Output('typhoon-count-analysis', 'children'),
-     Output('concentrated-months-analysis', 'children'),
-     Output('cluster-info', 'children')],
+     Output('concentrated-months-analysis', 'children')],
     [Input('analyze-button', 'n_clicks'),
-     Input('find-typhoon-button', 'n_clicks'),
-     Input('show-clusters-button', 'n_clicks'),
-     Input('show-routes-button', 'n_clicks')],
+     Input('find-typhoon-button', 'n_clicks')],
     [State('start-year', 'value'),
      State('start-month', 'value'),
      State('end-year', 'value'),
      State('end-month', 'value'),
-     State('n-clusters', 'value'),
      State('enso-dropdown', 'value'),
      State('typhoon-search', 'value')]
 )
-def update_graphs(analyze_clicks, find_typhoon_clicks, show_clusters_clicks, show_routes_clicks,
+
+def update_graphs(analyze_clicks, find_typhoon_clicks,
                   start_year, start_month, end_year, end_month,
-                  n_clusters, enso_value, typhoon_search):
+                  enso_value, typhoon_search):
     ctx = dash.callback_context
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
     start_date = datetime(start_year, start_month, 1)
     end_date = datetime(end_year, end_month, 28)
   
-    oni_df = fetch_oni_data_from_csv(ONI_DATA_PATH)
-    oni_df = oni_df[(oni_df.index >= start_date) & (oni_df.index <= end_date)]
+    filtered_oni_df = oni_df[(oni_df.index >= start_date) & (oni_df.index <= end_date)]
+
 
     regression_data = {'El Nino': {'longitudes': [], 'oni_values': [], 'names': []},
                        'La Nina': {'longitudes': [], 'oni_values': [], 'names': []},
@@ -615,7 +754,7 @@ def update_graphs(analyze_clicks, find_typhoon_clicks, show_clusters_clicks, sho
         storm = get_storm_data(storm_id)
         storm_dates = storm.time
         if any(start_date <= date <= end_date for date in storm_dates):
-            storm_oni = oni_df.loc[storm_dates[0].strftime('%Y-%b')]['ONI']
+            storm_oni = filtered_oni_df.loc[storm_dates[0].strftime('%Y-%b')]['ONI']
             if isinstance(storm_oni, pd.Series):
                 storm_oni = storm_oni.iloc[0]
             phase = classify_enso_phases(storm_oni)
@@ -758,91 +897,6 @@ def update_graphs(analyze_clicks, find_typhoon_clicks, show_clusters_clicks, sho
                 customdata=filtered_data.loc[mask, 'Category']
             ))
     
-    # Clustering analysis
-    west_pacific_storms = []
-    for year in range(start_year, end_year + 1):
-        season = ibtracs.get_season(year)
-        for storm_id in season.summary()['id']:
-            storm = get_storm_data(storm_id)
-            storm_date = storm.time[0]
-            storm_oni = oni_df.loc[storm_date.strftime('%Y-%b')]['ONI']
-            if isinstance(storm_oni, pd.Series):
-                storm_oni = storm_oni.iloc[0]
-            storm_phase = classify_enso_phases(storm_oni)
-            
-            if enso_value == 'all' or \
-               (enso_value == 'el_nino' and storm_phase == 'El Nino') or \
-               (enso_value == 'la_nina' and storm_phase == 'La Nina') or \
-               (enso_value == 'neutral' and storm_phase == 'Neutral'):
-                lons, lats = filter_west_pacific_coordinates(np.array(storm.lon), np.array(storm.lat))
-                if len(lons) > 1:  # Ensure the storm has a valid path in West Pacific
-                    west_pacific_storms.append((lons, lats))
-
-    max_length = max(len(storm[0]) for storm in west_pacific_storms)
-    standardized_routes = []
-    
-    for lons, lats in west_pacific_storms:
-        if len(lons) < 2:  # Skip if not enough points
-            continue
-        t = np.linspace(0, 1, len(lons))
-        t_new = np.linspace(0, 1, max_length)
-        lon_interp = interp1d(t, lons, kind='linear')(t_new)
-        lat_interp = interp1d(t, lats, kind='linear')(t_new)
-        route_vector = np.column_stack((lon_interp, lat_interp)).flatten()
-        standardized_routes.append(route_vector)
-
-    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-    clusters = kmeans.fit_predict(standardized_routes)
-
-    fig_routes = go.Figure()
-
-    for lons, lats in west_pacific_storms:
-        fig_routes.add_trace(go.Scattergeo(
-            lon=lons, lat=lats,
-            mode='lines',
-            line=dict(width=1, color='lightgray'),
-            showlegend=False,
-            hoverinfo='none',
-            visible=(button_id == 'show-routes-button')
-        ))
-
-    cluster_equations = []
-    for i in range(n_clusters):
-        cluster_center = kmeans.cluster_centers_[i].reshape(-1, 2)
-        equation, model_name, params = generate_cluster_equation(cluster_center)
-        cluster_equations.append(f"Cluster {i+1}: {equation} (Model: {model_name})")
-        
-        fig_routes.add_trace(go.Scattergeo(
-            lon=cluster_center[:, 0],
-            lat=cluster_center[:, 1],
-            mode='lines',
-            name=f'Cluster {i+1}',
-            line=dict(width=3),
-            visible=(button_id == 'show-clusters-button')
-        ))
-
-    enso_phase_text = {
-        'all': 'All Years',
-        'el_nino': 'El Niño Years',
-        'la_nina': 'La Niña Years',
-        'neutral': 'Neutral Years'
-    }
-    fig_routes.update_layout(
-        title=f'Typhoon Routes Clustering in West Pacific ({start_year}-{end_year}) - {enso_phase_text[enso_value]}',
-        geo=dict(
-            projection_type='mercator',
-            showland=True,
-            landcolor='rgb(243, 243, 243)',
-            countrycolor='rgb(204, 204, 204)',
-            coastlinecolor='rgb(100, 100, 100)',
-            showocean=True,
-            oceancolor='rgb(230, 250, 255)',
-            lataxis={'range': [0, 40]},
-            lonaxis={'range': [100, 180]},
-            center={'lat': 20, 'lon': 140},
-        ),
-        legend_title='Clusters'
-    )
             
     start_date = datetime(start_year, start_month, 1)
     end_date = datetime(end_year, end_month, 28)
@@ -860,15 +914,13 @@ def update_graphs(analyze_clicks, find_typhoon_clicks, show_clusters_clicks, sho
     max_wind_speed_text = f"Maximum Wind Speed: {max_wind_speed:.2f} knots"
     min_pressure_text = f"Minimum Pressure: {min_pressure:.2f} hPa"
 
-    cluster_counts = pd.Series(clusters).value_counts().sort_index()
-    cluster_info = [html.P(f"Cluster {i+1}: {count} typhoons") for i, count in enumerate(cluster_counts)]
-    cluster_info.extend([html.P(eq) for eq in cluster_equations])
 
-    return (fig_tracks, fig_routes, all_years_fig, regression_figs, slopes, 
+    return (fig_tracks, all_years_fig, regression_figs, slopes, 
             wind_oni_scatter, pressure_oni_scatter,
             correlation_text, max_wind_speed_text, min_pressure_text,
-            "Wind-ONI correlation: See logistic regression results", "Pressure-ONI correlation: See logistic regression results",
-            count_analysis, month_analysis, cluster_info)
+            "Wind-ONI correlation: See logistic regression results", 
+            "Pressure-ONI correlation: See logistic regression results",
+            count_analysis, month_analysis)
 
 @app.callback(
     Output('logistic-regression-results', 'children'),
