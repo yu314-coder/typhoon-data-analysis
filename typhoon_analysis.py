@@ -328,6 +328,13 @@ app.layout = html.Div([
 
     dcc.Graph(id='typhoon-routes-graph'),
     
+    html.Div([
+        html.Button('Wind Speed Logistic Regression', id='wind-regression-button', n_clicks=0),
+        html.Button('Pressure Logistic Regression', id='pressure-regression-button', n_clicks=0),
+        html.Button('Longitude Logistic Regression', id='longitude-regression-button', n_clicks=0),
+    ]),
+    html.Div(id='logistic-regression-results'),
+
     html.H2("Typhoon Path Analysis"),
     html.Div([
         dcc.Dropdown(
@@ -360,12 +367,6 @@ app.layout = html.Div([
         html.Div(id='concentrated-months-analysis'),
     ]),
     html.Div(id='cluster-info'),
-    html.Div([
-        html.Button('Wind Speed Logistic Regression', id='wind-regression-button', n_clicks=0),
-        html.Button('Pressure Logistic Regression', id='pressure-regression-button', n_clicks=0),
-        html.Button('Longitude Logistic Regression', id='longitude-regression-button', n_clicks=0),
-    ]),
-    html.Div(id='logistic-regression-results'),
     
     
 ], style={'font-family': 'Arial, sans-serif'})
