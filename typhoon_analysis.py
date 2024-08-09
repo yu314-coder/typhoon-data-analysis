@@ -342,6 +342,7 @@ app.layout = html.Div([
         )
     ],style={'display': 'flex', 'gap': '10px'}),
     
+    dcc.Graph(id='typhoon-path-animation'),
     dcc.Graph(id='all-years-regression-graph'),
     dcc.Graph(id='wind-oni-scatter-plot'),
     dcc.Graph(id='pressure-oni-scatter'),
@@ -366,7 +367,6 @@ app.layout = html.Div([
     ]),
     html.Div(id='logistic-regression-results'),
     
-    dcc.Graph(id='typhoon-path-animation'),
     
 ], style={'font-family': 'Arial, sans-serif'})
 
