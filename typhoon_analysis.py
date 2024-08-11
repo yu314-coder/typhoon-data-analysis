@@ -24,18 +24,17 @@ from fractions import Fraction
 from concurrent.futures import ThreadPoolExecutor
 from sklearn.metrics import mean_squared_error
 import statsmodels.api as sm
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.pipeline import make_pipeline
+from sklearn.neural_network import MLPRegressor
 
-# Add command-line argument parsing
 parser = argparse.ArgumentParser(description='Typhoon Analysis Dashboard')
 parser.add_argument('--data_path', type=str, default=os.getcwd(), help='Path to the data directory')
 args = parser.parse_args()
 
-# Use the command-line argument for data path
 DATA_PATH = args.data_path
-
 ONI_DATA_PATH = os.path.join(DATA_PATH, 'oni_data.csv')
 TYPHOON_DATA_PATH = os.path.join(DATA_PATH, 'processed_typhoon_data.csv')
-
 CACHE_FILE = 'ibtracs_cache.pkl'
 CACHE_EXPIRY_DAYS = 1
 
@@ -46,6 +45,39 @@ color_map = {
     'Tropical Depression': 'rgb(0, 255, 255)'
 }
 
+def generate_cluster_equations(cluster_center):
+    X = cluster_center[:, 0]  # Longitudes
+    y = cluster_center[:, 1]  # Latitudes
+    
+    x_min = X.min()
+    x_max = X.max()
+    
+    equations = []
+
+    # Fourier Series (up to 4th order)
+    def fourier_series(x, a0, a1, b1, a2, b2, a3, b3, a4, b4):
+        return (a0 + a1*np.cos(x) + b1*np.sin(x) + 
+                a2*np.cos(2*x) + b2*np.sin(2*x) + 
+                a3*np.cos(3*x) + b3*np.sin(3*x) + 
+                a4*np.cos(4*x) + b4*np.sin(4*x))
+
+    # Normalize X to the range [0, 2π]
+    X_normalized = 2 * np.pi * (X - x_min) / (x_max - x_min)
+
+    params, _ = curve_fit(fourier_series, X_normalized, y)
+    a0, a1, b1, a2, b2, a3, b3, a4, b4 = params
+    
+    # Create the equation string
+    fourier_eq = (f"y = {a0:.4f} + {a1:.4f}*cos(x) + {b1:.4f}*sin(x) + "
+                  f"{a2:.4f}*cos(2x) + {b2:.4f}*sin(2x) + "
+                  f"{a3:.4f}*cos(3x) + {b3:.4f}*sin(3x) + "
+                  f"{a4:.4f}*cos(4x) + {b4:.4f}*sin(4x)")
+    
+    equations.append(("Fourier Series", fourier_eq))
+    equations.append(("X Range", f"x goes from 0 to {2*np.pi:.4f}"))
+    equations.append(("Longitude Range", f"Longitude goes from {x_min:.4f}°E to {x_max:.4f}°E"))
+
+    return equations, (x_min, x_max)
 def load_ibtracs_data():
     if os.path.exists(CACHE_FILE):
         cache_time = datetime.fromtimestamp(os.path.getmtime(CACHE_FILE))
@@ -87,7 +119,7 @@ def cache_key_generator(*args, **kwargs):
     return key.hexdigest()
 
 def categorize_typhoon(wind_speed):
-    wind_speed_kt = wind_speed / 2.526992 # Convert m/s to kt
+    wind_speed_kt = wind_speed / 2.526992
     if wind_speed_kt >= 51:
         return 'Severe Typhoon'
     elif wind_speed_kt >= 32.7:
@@ -149,15 +181,11 @@ def merge_data(oni_long, typhoon_max):
 
 def calculate_logistic_regression(merged_data):
     data = merged_data.dropna(subset=['USA_WIND', 'ONI'])
-    
-    # Create binary outcome for severe typhoons
     data['severe_typhoon'] = (data['USA_WIND'] >= 51).astype(int)
-    
-    # Create binary predictor for El Niño
     data['el_nino'] = (data['ONI'] >= 0.5).astype(int)
     
     X = data['el_nino']
-    X = sm.add_constant(X)  # Add constant term
+    X = sm.add_constant(X)
     y = data['severe_typhoon']
     
     model = sm.Logit(y, X).fit()
@@ -229,53 +257,6 @@ def filter_west_pacific_coordinates(lons, lats):
     mask = (100 <= lons) & (lons <= 180) & (0 <= lats) & (lats <= 40)
     return lons[mask], lats[mask]
 
-def polynomial_exp(x, a, b, c, d):
-    return a * x**2 + b * x + c + d * np.exp(x)
-
-def exponential(x, a, b, c):
-    return a * np.exp(b * x) + c
-
-def generate_cluster_equation(cluster_center):
-    X = cluster_center[:, 0]
-    y = cluster_center[:, 1]
-    
-    models = [
-        ('Polynomial', lambda x, a, b, c: a * x**2 + b * x + c),
-        ('Exponential', exponential),
-        ('Polynomial + Exponential', polynomial_exp)
-    ]
-    
-    best_model = None
-    best_mse = float('inf')
-    best_params = None
-    
-    for name, model in models:
-        try:
-            params, _ = curve_fit(model, X, y)
-            y_pred = model(X, *params)
-            mse = mean_squared_error(y, y_pred)
-            
-            if mse < best_mse:
-                best_mse = mse
-                best_model = name
-                best_params = params
-        except:
-            continue
-    
-    if best_model == 'Polynomial':
-        a, b, c = best_params
-        equation = f"y = {a:.4f}x² + {b:.4f}x + {c:.4f}"
-    elif best_model == 'Exponential':
-        a, b, c = best_params
-        equation = f"y = {a:.4f} * exp({b:.4f}x) + {c:.4f}"
-    elif best_model == 'Polynomial + Exponential':
-        a, b, c, d = best_params
-        equation = f"y = {a:.4f}x² + {b:.4f}x + {c:.4f} + {d:.4f} * exp(x)"
-    else:
-        equation = "No suitable model found"
-    
-    return equation, best_model, best_params
-    
 oni_df = fetch_oni_data_from_csv(ONI_DATA_PATH)
 ibtracs = load_ibtracs_data()
 oni_data, typhoon_data = load_data(ONI_DATA_PATH, TYPHOON_DATA_PATH)
@@ -326,9 +307,13 @@ app.layout = html.Div([
         html.Button('Show Clusters', id='show-clusters-button', n_clicks=0),
         html.Button('Show Typhoon Routes', id='show-routes-button', n_clicks=0),
     ]),
-
     dcc.Graph(id='typhoon-routes-graph'),
     
+    html.Div([
+        html.Button('Fourier Series', id='fourier-series-button', n_clicks=0),
+    ]),
+    html.Div(id='cluster-equation-results'),
+
     html.Div([
         html.Button('Wind Speed Logistic Regression', id='wind-regression-button', n_clicks=0),
         html.Button('Pressure Logistic Regression', id='pressure-regression-button', n_clicks=0),
@@ -369,9 +354,64 @@ app.layout = html.Div([
     ]),
     html.Div(id='cluster-info'),
     
-    
 ], style={'font-family': 'Arial, sans-serif'})
 
+@app.callback(
+    Output('cluster-equation-results', 'children'),
+    [Input('fourier-series-button', 'n_clicks')],
+    [State('n-clusters', 'value'),
+     State('start-year', 'value'),
+     State('end-year', 'value')]
+)
+def update_cluster_equations(fourier_clicks, n_clusters, start_year, end_year):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return "Click the button to see or hide cluster equations."
+    
+    if fourier_clicks % 2 == 0:
+        return "Click the button to see cluster equations."
+
+    west_pacific_storms = []
+    for year in range(start_year, end_year + 1):
+        season = ibtracs.get_season(year)
+        for storm_id in season.summary()['id']:
+            storm = get_storm_data(storm_id)
+            lons, lats = filter_west_pacific_coordinates(np.array(storm.lon), np.array(storm.lat))
+            if len(lons) > 1:
+                west_pacific_storms.append((lons, lats))
+
+    max_length = max(len(storm[0]) for storm in west_pacific_storms)
+    standardized_routes = []
+    
+    for lons, lats in west_pacific_storms:
+        if len(lons) < 2:
+            continue
+        t = np.linspace(0, 1, len(lons))
+        t_new = np.linspace(0, 1, max_length)
+        lon_interp = interp1d(t, lons, kind='linear')(t_new)
+        lat_interp = interp1d(t, lats, kind='linear')(t_new)
+        route_vector = np.column_stack((lon_interp, lat_interp)).flatten()
+        standardized_routes.append(route_vector)
+
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    clusters = kmeans.fit_predict(standardized_routes)
+
+    equations_output = []
+    for i in range(n_clusters):
+        cluster_center = kmeans.cluster_centers_[i].reshape(-1, 2)
+        cluster_equations, (lon_min, lon_max) = generate_cluster_equations(cluster_center)
+        
+        equations_output.append(html.H4(f"Cluster {i+1}"))
+        for name, eq in cluster_equations:
+            equations_output.append(html.P(f"{name}: {eq}"))
+        
+        equations_output.append(html.P("To use in GeoGebra:"))
+        equations_output.append(html.P(f"1. Set x-axis from 0 to {2*np.pi:.4f}"))
+        equations_output.append(html.P(f"2. Use the equation as is"))
+        equations_output.append(html.P(f"3. To convert x back to longitude: lon = {lon_min:.4f} + x * {(lon_max - lon_min) / (2*np.pi):.4f}"))
+        equations_output.append(html.Hr())
+
+    return html.Div(equations_output)
 @app.callback(
     Output('year-dropdown', 'options'),
     Input('typhoon-tracks-graph', 'figure')
@@ -433,8 +473,8 @@ def create_typhoon_path_figure(storm, selected_year):
             lat=storm.lat,
             mode='lines',
             line=dict(width=2, color='gray'),
-            name='Path',
-            showlegend=False,
+            name='Full Path',
+            showlegend=True,
         )
     )
 
@@ -447,6 +487,7 @@ def create_typhoon_path_figure(storm, selected_year):
             name='Starting Point',
             text=storm.time[0].strftime('%Y-%m-%d %H:%M'),
             hoverinfo='text+name',
+            showlegend=True,
         )
     )
 
@@ -489,6 +530,7 @@ def create_typhoon_path_figure(storm, selected_year):
                           f"Wind Speed: {storm.vmax[i]:.1f} m/s<br>"
                           f"{radius_info}",
                 hoverinfo='text',
+                showlegend=False,
             ),
         ]
         frames.append(go.Frame(data=frame_data, name=f"frame{i}"))
@@ -497,7 +539,7 @@ def create_typhoon_path_figure(storm, selected_year):
 
     fig.update_layout(
         title=f"{selected_year} Year {storm.name} Typhoon Path",
-        showlegend=False,
+        showlegend=True,
         geo=dict(
             projection_type='natural earth',
             showland=True,
@@ -563,153 +605,10 @@ def create_typhoon_path_figure(storm, selected_year):
         }]
     )
 
-    return fig
-    
-@app.callback(
-    [Output('typhoon-routes-graph', 'figure'),
-     Output('cluster-info', 'children')],
-    [Input('analyze-button', 'n_clicks'),
-     Input('show-clusters-button', 'n_clicks'),
-     Input('show-routes-button', 'n_clicks')],
-    [State('start-year', 'value'),
-     State('start-month', 'value'),
-     State('end-year', 'value'),
-     State('end-month', 'value'),
-     State('n-clusters', 'value'),
-     State('enso-dropdown', 'value')]
-)
-
-def update_route_clusters(analyze_clicks,show_clusters_clicks, show_routes_clicks,
-                          start_year, start_month, end_year, end_month,
-                          n_clusters, enso_value):
-    ctx = dash.callback_context
-    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-
-    start_date = datetime(start_year, start_month, 1)
-    end_date = datetime(end_year, end_month, 28)
-    
-    filtered_oni_df = oni_df[(oni_df.index >= start_date) & (oni_df.index <= end_date)]
-
-    fig_routes = go.Figure()
-
-    west_pacific_storms = []
-    for year in range(start_year, end_year + 1):
-        season = ibtracs.get_season(year)
-        for storm_id in season.summary()['id']:
-            storm = get_storm_data(storm_id)
-            storm_date = storm.time[0]
-            storm_oni = filtered_oni_df.loc[storm_date.strftime('%Y-%b')]['ONI']
-            if isinstance(storm_oni, pd.Series):
-                storm_oni = storm_oni.iloc[0]
-            storm_phase = classify_enso_phases(storm_oni)
-            
-            if enso_value == 'all' or \
-               (enso_value == 'el_nino' and storm_phase == 'El Nino') or \
-               (enso_value == 'la_nina' and storm_phase == 'La Nina') or \
-               (enso_value == 'neutral' and storm_phase == 'Neutral'):
-                lons, lats = filter_west_pacific_coordinates(np.array(storm.lon), np.array(storm.lat))
-                if len(lons) > 1:  # Ensure the storm has a valid path in West Pacific
-                    west_pacific_storms.append((lons, lats))
-
-    clusters = np.array([])  # Initialize as empty NumPy array
-    cluster_equations = []
-    
-    # Clustering analysis
-    west_pacific_storms = []
-    for year in range(start_year, end_year + 1):
-        season = ibtracs.get_season(year)
-        for storm_id in season.summary()['id']:
-            storm = get_storm_data(storm_id)
-            storm_date = storm.time[0]
-            storm_oni = oni_df.loc[storm_date.strftime('%Y-%b')]['ONI']
-            if isinstance(storm_oni, pd.Series):
-                storm_oni = storm_oni.iloc[0]
-            storm_phase = classify_enso_phases(storm_oni)
-            
-            if enso_value == 'all' or \
-               (enso_value == 'el_nino' and storm_phase == 'El Nino') or \
-               (enso_value == 'la_nina' and storm_phase == 'La Nina') or \
-               (enso_value == 'neutral' and storm_phase == 'Neutral'):
-                lons, lats = filter_west_pacific_coordinates(np.array(storm.lon), np.array(storm.lat))
-                if len(lons) > 1:  # Ensure the storm has a valid path in West Pacific
-                    west_pacific_storms.append((lons, lats))
-
-    max_length = max(len(storm[0]) for storm in west_pacific_storms)
-    standardized_routes = []
-    
-    for lons, lats in west_pacific_storms:
-        if len(lons) < 2:  # Skip if not enough points
-            continue
-        t = np.linspace(0, 1, len(lons))
-        t_new = np.linspace(0, 1, max_length)
-        lon_interp = interp1d(t, lons, kind='linear')(t_new)
-        lat_interp = interp1d(t, lats, kind='linear')(t_new)
-        route_vector = np.column_stack((lon_interp, lat_interp)).flatten()
-        standardized_routes.append(route_vector)
-
-    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-    clusters = kmeans.fit_predict(standardized_routes)
-
-    #fig_routes = go.Figure()
-
-    for lons, lats in west_pacific_storms:
-        fig_routes.add_trace(go.Scattergeo(
-            lon=lons, lat=lats,
-            mode='lines',
-            line=dict(width=1, color='lightgray'),
-            showlegend=False,
-            hoverinfo='none',
-            visible=(button_id == 'show-routes-button')
-        ))
-
-    cluster_equations = []
-    for i in range(n_clusters):
-        cluster_center = kmeans.cluster_centers_[i].reshape(-1, 2)
-        equation, model_name, params = generate_cluster_equation(cluster_center)
-        cluster_equations.append(f"Cluster {i+1}: {equation} (Model: {model_name})")
-        
-        fig_routes.add_trace(go.Scattergeo(
-            lon=cluster_center[:, 0],
-            lat=cluster_center[:, 1],
-            mode='lines',
-            name=f'Cluster {i+1}',
-            line=dict(width=3),
-            visible=(button_id == 'show-clusters-button')
-        ))
-
-    enso_phase_text = {
-        'all': 'All Years',
-        'el_nino': 'El Niño Years',
-        'la_nina': 'La Niña Years',
-        'neutral': 'Neutral Years'
-    }
-    fig_routes.update_layout(
-        title=f'Typhoon Routes Clustering in West Pacific ({start_year}-{end_year}) - {enso_phase_text[enso_value]}',
-        geo=dict(
-            projection_type='mercator',
-            showland=True,
-            landcolor='rgb(243, 243, 243)',
-            countrycolor='rgb(204, 204, 204)',
-            coastlinecolor='rgb(100, 100, 100)',
-            showocean=True,
-            oceancolor='rgb(230, 250, 255)',
-            lataxis={'range': [0, 40]},
-            lonaxis={'range': [100, 180]},
-            center={'lat': 20, 'lon': 140},
-        ),
-        legend_title='Clusters'
-    )
-    
-    cluster_info = []
-    if len(clusters) > 0:  # Check if clusters array is not empty
-        cluster_counts = pd.Series(clusters).value_counts().sort_index()
-        cluster_info = [html.P(f"Cluster {i+1}: {count} typhoons") for i, count in enumerate(cluster_counts)]
-        cluster_info.extend([html.P(eq) for eq in cluster_equations])
-
-    return fig_routes, cluster_info
-
+    return fig    
 @app.callback(
     [Output('typhoon-tracks-graph', 'figure'),
+     Output('typhoon-routes-graph', 'figure'),
      Output('all-years-regression-graph', 'figure'),
      Output('regression-graphs', 'children'),
      Output('slopes', 'children'),
@@ -721,20 +620,23 @@ def update_route_clusters(analyze_clicks,show_clusters_clicks, show_routes_click
      Output('wind-oni-correlation', 'children'),
      Output('pressure-oni-correlation', 'children'),
      Output('typhoon-count-analysis', 'children'),
-     Output('concentrated-months-analysis', 'children')],
+     Output('concentrated-months-analysis', 'children'),
+     Output('cluster-info', 'children')],
     [Input('analyze-button', 'n_clicks'),
-     Input('find-typhoon-button', 'n_clicks')],
+     Input('find-typhoon-button', 'n_clicks'),
+     Input('show-clusters-button', 'n_clicks'),
+     Input('show-routes-button', 'n_clicks')],
     [State('start-year', 'value'),
      State('start-month', 'value'),
      State('end-year', 'value'),
      State('end-month', 'value'),
+     State('n-clusters', 'value'),
      State('enso-dropdown', 'value'),
      State('typhoon-search', 'value')]
 )
-
-def update_graphs(analyze_clicks, find_typhoon_clicks,
+def update_graphs(analyze_clicks, find_typhoon_clicks, show_clusters_clicks, show_routes_clicks,
                   start_year, start_month, end_year, end_month,
-                  enso_value, typhoon_search):
+                  n_clusters, enso_value, typhoon_search):
     ctx = dash.callback_context
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
@@ -742,7 +644,6 @@ def update_graphs(analyze_clicks, find_typhoon_clicks,
     end_date = datetime(end_year, end_month, 28)
   
     filtered_oni_df = oni_df[(oni_df.index >= start_date) & (oni_df.index <= end_date)]
-
 
     regression_data = {'El Nino': {'longitudes': [], 'oni_values': [], 'names': []},
                        'La Nina': {'longitudes': [], 'oni_values': [], 'names': []},
@@ -805,7 +706,7 @@ def update_graphs(analyze_clicks, find_typhoon_clicks,
 
     regression_figs = []
     slopes = []
-    all_years_fig = go.Figure()  # Initialize with an empty figure
+    all_years_fig = go.Figure()
 
     for phase in ['El Nino', 'La Nina', 'Neutral', 'All']:
         df = pd.DataFrame({
@@ -814,7 +715,7 @@ def update_graphs(analyze_clicks, find_typhoon_clicks,
             'Name': regression_data[phase]['names']
         })
         
-        if not df.empty and len(df) > 1:  # Ensure there's enough data for regression
+        if not df.empty and len(df) > 1:
             try:
                 fig = px.scatter(df, x='Longitude', y='ONI', hover_data=['Name'],
                                  labels={'Longitude': 'Longitude of Typhoon Generation', 'ONI': 'ONI Value'},
@@ -898,6 +799,91 @@ def update_graphs(analyze_clicks, find_typhoon_clicks,
                 customdata=filtered_data.loc[mask, 'Category']
             ))
     
+    west_pacific_storms = []
+    for year in range(start_year, end_year + 1):
+        season = ibtracs.get_season(year)
+        for storm_id in season.summary()['id']:
+            storm = get_storm_data(storm_id)
+            storm_date = storm.time[0]
+            storm_oni = filtered_oni_df.loc[storm_date.strftime('%Y-%b')]['ONI']
+            if isinstance(storm_oni, pd.Series):
+                storm_oni = storm_oni.iloc[0]
+            storm_phase = classify_enso_phases(storm_oni)
+            
+            if enso_value == 'all' or \
+               (enso_value == 'el_nino' and storm_phase == 'El Nino') or \
+               (enso_value == 'la_nina' and storm_phase == 'La Nina') or \
+               (enso_value == 'neutral' and storm_phase == 'Neutral'):
+                lons, lats = filter_west_pacific_coordinates(np.array(storm.lon), np.array(storm.lat))
+                if len(lons) > 1:
+                    west_pacific_storms.append((lons, lats))
+
+    max_length = max(len(storm[0]) for storm in west_pacific_storms)
+    standardized_routes = []
+    
+    for lons, lats in west_pacific_storms:
+        if len(lons) < 2:
+            continue
+        t = np.linspace(0, 1, len(lons))
+        t_new = np.linspace(0, 1, max_length)
+        lon_interp = interp1d(t, lons, kind='linear')(t_new)
+        lat_interp = interp1d(t, lats, kind='linear')(t_new)
+        route_vector = np.column_stack((lon_interp, lat_interp)).flatten()
+        standardized_routes.append(route_vector)
+
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    clusters = kmeans.fit_predict(standardized_routes)
+
+    fig_routes = go.Figure()
+
+    for lons, lats in west_pacific_storms:
+        fig_routes.add_trace(go.Scattergeo(
+            lon=lons, lat=lats,
+            mode='lines',
+            line=dict(width=1, color='lightgray'),
+            showlegend=False,
+            hoverinfo='none',
+            visible=(button_id == 'show-routes-button')
+        ))
+
+    cluster_equations = []
+    for i in range(n_clusters):
+        cluster_center = kmeans.cluster_centers_[i].reshape(-1, 2)
+        equations, (x_min, x_max) = generate_cluster_equations(cluster_center)
+        cluster_equations.extend([f"Cluster {i+1} - {name}: {eq}" for name, eq in equations])
+        cluster_equations.append(f"Cluster {i+1} - Longitude range: {x_min:.2f}°E to {x_max:.2f}°E")
+        
+        fig_routes.add_trace(go.Scattergeo(
+            lon=cluster_center[:, 0],
+            lat=cluster_center[:, 1],
+            mode='lines',
+            name=f'Cluster {i+1}',
+            line=dict(width=3),
+            visible=(button_id == 'show-clusters-button')
+        ))
+
+    enso_phase_text = {
+        'all': 'All Years',
+        'el_nino': 'El Niño Years',
+        'la_nina': 'La Niña Years',
+        'neutral': 'Neutral Years'
+    }
+    fig_routes.update_layout(
+        title=f'Typhoon Routes Clustering in West Pacific ({start_year}-{end_year}) - {enso_phase_text[enso_value]}',
+        geo=dict(
+            projection_type='mercator',
+            showland=True,
+            landcolor='rgb(243, 243, 243)',
+            countrycolor='rgb(204, 204, 204)',
+            coastlinecolor='rgb(100, 100, 100)',
+            showocean=True,
+            oceancolor='rgb(230, 250, 255)',
+            lataxis={'range': [0, 40]},
+            lonaxis={'range': [100, 180]},
+            center={'lat': 20, 'lon': 140},
+        ),
+        legend_title='Clusters'
+    )
             
     start_date = datetime(start_year, start_month, 1)
     end_date = datetime(end_year, end_month, 28)
@@ -915,13 +901,16 @@ def update_graphs(analyze_clicks, find_typhoon_clicks,
     max_wind_speed_text = f"Maximum Wind Speed: {max_wind_speed:.2f} knots"
     min_pressure_text = f"Minimum Pressure: {min_pressure:.2f} hPa"
 
+    cluster_counts = pd.Series(clusters).value_counts().sort_index()
+    cluster_info = [html.P(f"Cluster {i+1}: {count} typhoons") for i, count in enumerate(cluster_counts)]
+    cluster_info.extend([html.P(eq) for eq in cluster_equations])
 
-    return (fig_tracks, all_years_fig, regression_figs, slopes, 
+    return (fig_tracks, fig_routes, all_years_fig, regression_figs, slopes, 
             wind_oni_scatter, pressure_oni_scatter,
             correlation_text, max_wind_speed_text, min_pressure_text,
             "Wind-ONI correlation: See logistic regression results", 
             "Pressure-ONI correlation: See logistic regression results",
-            count_analysis, month_analysis)
+            count_analysis, month_analysis, cluster_info)
 
 @app.callback(
     Output('logistic-regression-results', 'children'),
@@ -1033,7 +1022,6 @@ def calculate_pressure_logistic_regression(data):
     ])
 
 def calculate_longitude_logistic_regression(data):
-    # Use only the data points where longitude is available
     data = data.dropna(subset=['LON'])
     
     if len(data) == 0:
