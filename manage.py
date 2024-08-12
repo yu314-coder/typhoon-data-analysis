@@ -2,11 +2,8 @@ import os
 import sys
 import git
 import subprocess
-import requests
 import venv
 import glob
-import tkinter as tk
-from tkinter import scrolledtext, messagebox
 
 # Path for the virtual environment
 VENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'venv')
@@ -26,92 +23,87 @@ def get_venv_python():
 
 def run_in_venv(command):
     venv_python = get_venv_python()
-    return subprocess.run([venv_python] + command, check=True, capture_output=True, text=True)
+    return subprocess.run([venv_python] + command, check=True)
 
 def update_from_github():
     try:
         repo = git.Repo(os.path.dirname(os.path.abspath(__file__)))
         origin = repo.remotes.origin
         origin.pull()
-        output = "Successfully updated from GitHub.\n\n"
+        print("Successfully updated from GitHub.")
         
         # Update all Python files
         for py_file in glob.glob("*.py"):
-            output += f"Updated {py_file}\n"
+            print(f"Updated {py_file}")
         
         # Update requirements.txt
         if os.path.exists('requirements.txt'):
-            output += "Updated requirements.txt\n"
+            print("Updated requirements.txt")
         
-        return True, output
+        return True
     except Exception as e:
-        return False, f"Failed to update from GitHub: {str(e)}"
+        print(f"Failed to update from GitHub: {str(e)}")
+        return False
 
 def update_requirements():
     try:
-        result = run_in_venv(["-m", "pip", "install", "-r", "requirements.txt"])
-        return True, "Successfully updated requirements in virtual environment.\n" + result.stdout
+        run_in_venv(["-m", "pip", "install", "-r", "requirements.txt"])
+        print("Successfully updated requirements in virtual environment.")
+        return True
     except subprocess.CalledProcessError as e:
-        return False, f"Failed to update requirements: {str(e)}\n" + e.stdout
+        print(f"Failed to update requirements: {str(e)}")
+        return False
 
 def run_script():
     try:
-        result = run_in_venv(["typhoon_analysis.py"])
-        return True, "Script executed successfully.\n" + result.stdout
+        run_in_venv(["typhoon_analysis.py"])
     except subprocess.CalledProcessError as e:
-        return False, f"Error running script: {str(e)}\n" + e.stdout
+        print(f"Error running script: {str(e)}")
 
-class TyphoonAnalysisGUI:
-    def __init__(self, master):
-        self.master = master
-        master.title("Typhoon Analysis Dashboard Manager")
-        master.geometry("600x400")
+def main_menu():
+    menu = """
+--- Typhoon Analysis Dashboard Manager ---
+1. Update all scripts and requirements.txt from GitHub
+2. Update installed packages
+3. Run Typhoon Analysis Dashboard
+4. Exit
+    
+Enter your choice (1-4): """
+    return menu
 
-        self.output_area = scrolledtext.ScrolledText(master, wrap=tk.WORD, width=70, height=20)
-        self.output_area.pack(padx=10, pady=10)
+def open_new_console():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    script_path = os.path.join(script_dir, "manage.py")
+    
+    if sys.platform == "win32":
+        # For Windows
+        subprocess.Popen(f'start cmd /k python "{script_path}" run_menu', shell=True)
+    else:
+        # For Linux and MacOS
+        terminal_command = "x-terminal-emulator -e" if sys.platform.startswith("linux") else "open -a Terminal"
+        subprocess.Popen(f'{terminal_command} python3 "{script_path}" run_menu', shell=True)
 
-        self.input_area = tk.Entry(master, width=50)
-        self.input_area.pack(pady=5)
-        self.input_area.bind("<Return>", self.process_command)
-
-        self.submit_button = tk.Button(master, text="Submit", command=self.process_command)
-        self.submit_button.pack(pady=5)
-
-        self.output_area.insert(tk.END, "Welcome to the Typhoon Analysis Dashboard Manager.\n")
-        self.output_area.insert(tk.END, "Available commands:\n")
-        self.output_area.insert(tk.END, "  update  - Update all scripts and requirements.txt from GitHub\n")
-        self.output_area.insert(tk.END, "  install - Update installed packages\n")
-        self.output_area.insert(tk.END, "  run     - Run Typhoon Analysis Dashboard\n")
-        self.output_area.insert(tk.END, "  exit    - Exit the manager\n\n")
-
-    def process_command(self, event=None):
-        command = self.input_area.get().strip().lower()
-        self.input_area.delete(0, tk.END)
-
-        if command == "update":
-            success, output = update_from_github()
-            self.output_area.insert(tk.END, output + "\n")
-            if success:
-                messagebox.showinfo("Update Successful", "Please restart the manager to use the latest version.")
-                self.master.quit()
-        elif command == "install":
-            success, output = update_requirements()
-            self.output_area.insert(tk.END, output + "\n")
-        elif command == "run":
-            success, output = run_script()
-            self.output_area.insert(tk.END, output + "\n")
-        elif command == "exit":
-            self.master.quit()
-        else:
-            self.output_area.insert(tk.END, f"Unknown command: {command}\n")
-
-        self.output_area.see(tk.END)
-
-def main():
+def run_menu():
     create_venv()
-    root = tk.Tk()
-    gui = TyphoonAnalysisGUI(root)
-    root.mainloop()
+    while True:
+        choice = input(main_menu())
+        
+        if choice == '1':
+            if update_from_github():
+                print("All scripts and requirements.txt updated. Please restart the manager to use the latest version.")
+                sys.exit(0)
+        elif choice == '2':
+            update_requirements()
+        elif choice == '3':
+            run_script()
+        elif choice == '4':
+            print("Exiting...")
+            break
+        else:
+            print("Invalid choice. Please try again.")
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1 and sys.argv[1] == "run_menu":
+        run_menu()
+    else:
+        open_new_console()
