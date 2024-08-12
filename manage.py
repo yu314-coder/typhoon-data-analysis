@@ -2,9 +2,12 @@ import os
 import sys
 import git
 import subprocess
-import requests
 import venv
 import glob
+import time
+import socket
+import requests
+from requests.exceptions import RequestException
 
 # Path for the virtual environment
 VENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'venv')
@@ -24,8 +27,8 @@ def get_venv_python():
 
 def run_in_venv(command):
     venv_python = get_venv_python()
-    return subprocess.run([venv_python] + command, check=True)
-
+    return subprocess.Popen([venv_python] + command)
+    
 def update_from_github():
     try:
         repo = git.Repo(os.path.dirname(os.path.abspath(__file__)))
@@ -48,19 +51,56 @@ def update_from_github():
 
 def update_requirements():
     try:
-        run_in_venv(["-m", "pip", "install", "-r", "requirements.txt"])
+        subprocess.run([get_venv_python(), "-m", "pip", "install", "-r", "requirements.txt"], check=True)
         print("Successfully updated requirements in virtual environment.")
         return True
     except subprocess.CalledProcessError as e:
         print(f"Failed to update requirements: {str(e)}")
         return False
 
+def get_ip_address():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # doesn't even have to be reachable
+        s.connect(('10.255.255.255', 1))
+        IP = s.getsockname()[0]
+    except Exception:
+        IP = '127.0.0.1'
+    finally:
+        s.close()
+    return IP
+
 def run_script():
     try:
-        run_in_venv(["typhoon_analysis.py"])
-    except subprocess.CalledProcessError as e:
+        process = run_in_venv(["typhoon_analysis.py"])
+        print("Typhoon Analysis Dashboard is starting...")
+        
+        url = 'http://127.0.0.1:8050/'
+        
+        # Wait for the server to be ready
+        max_attempts = 30
+        for attempt in range(max_attempts):
+            try:
+                response = requests.get(url)
+                if response.status_code == 200:
+                    print(f"\nDashboard is now ready at: {url}")
+                    break
+            except RequestException:
+                if attempt < max_attempts - 1:
+                    time.sleep(1)
+                else:
+                    print(f"\nWarning: Dashboard might not be ready. You can still try accessing it at: {url}")
+        
+        print("\nPress Ctrl+C to stop the server when you're done.")
+        process.wait()
+    except KeyboardInterrupt:
+        print("\nStopping the server...")
+    except Exception as e:
         print(f"Error running script: {str(e)}")
-
+    finally:
+        if 'process' in locals():
+            process.terminate()
+        print("Server stopped.")
 def main_menu():
     create_venv()
     while True:
