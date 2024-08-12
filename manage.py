@@ -5,8 +5,10 @@ import subprocess
 import requests
 import venv
 import glob
+
 # Path for the virtual environment
-VENV_PATH = os.path.join(os.path.dirname(os.path.abspath(file)), 'venv')
+VENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'venv')
+
 def create_venv():
     if not os.path.exists(VENV_PATH):
         print("Creating virtual environment...")
@@ -14,32 +16,36 @@ def create_venv():
         print("Virtual environment created.")
     else:
         print("Virtual environment already exists.")
+
 def get_venv_python():
     if sys.platform == "win32":
         return os.path.join(VENV_PATH, 'Scripts', 'python.exe')
     return os.path.join(VENV_PATH, 'bin', 'python')
+
 def run_in_venv(command):
     venv_python = get_venv_python()
     return subprocess.run([venv_python] + command, check=True)
+
 def update_from_github():
     try:
-        repo = git.Repo(os.path.dirname(os.path.abspath(file)))
+        repo = git.Repo(os.path.dirname(os.path.abspath(__file__)))
         origin = repo.remotes.origin
         origin.pull()
         print("Successfully updated from GitHub.")
-
+        
         # Update all Python files
         for py_file in glob.glob("*.py"):
             print(f"Updated {py_file}")
-
+        
         # Update requirements.txt
         if os.path.exists('requirements.txt'):
             print("Updated requirements.txt")
-
+        
         return True
     except Exception as e:
         print(f"Failed to update from GitHub: {str(e)}")
         return False
+
 def update_requirements():
     try:
         run_in_venv(["-m", "pip", "install", "-r", "requirements.txt"])
@@ -48,11 +54,13 @@ def update_requirements():
     except subprocess.CalledProcessError as e:
         print(f"Failed to update requirements: {str(e)}")
         return False
+
 def run_script():
     try:
         run_in_venv(["typhoon_analysis.py"])
     except subprocess.CalledProcessError as e:
         print(f"Error running script: {str(e)}")
+
 def main_menu():
     create_venv()
     while True:
@@ -61,9 +69,9 @@ def main_menu():
         print("2. Update installed packages")
         print("3. Run Typhoon Analysis Dashboard")
         print("4. Exit")
-
+        
         choice = input("Enter your choice (1-4): ")
-
+        
         if choice == '1':
             if update_from_github():
                 print("All scripts and requirements.txt updated. Please restart the manager to use the latest version.")
@@ -77,5 +85,6 @@ def main_menu():
             break
         else:
             print("Invalid choice. Please try again.")
-if name == "main":
+
+if __name__ == "__main__":
     main_menu()
