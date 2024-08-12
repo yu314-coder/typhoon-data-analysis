@@ -578,8 +578,8 @@ def create_typhoon_path_figure(storm, selected_year):
      State('enso-dropdown', 'value')]
 )
 
-def update_route_clusters(analyze_clicks,show_clusters_clicks, show_routes_clicks,
-                          fourier_clicks,start_year, start_month, end_year, end_month,
+def update_route_clusters(analyze_clicks, show_clusters_clicks, show_routes_clicks,
+                          fourier_clicks, start_year, start_month, end_year, end_month,
                           n_clusters, enso_value):
     ctx = dash.callback_context
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
@@ -630,7 +630,8 @@ def update_route_clusters(analyze_clicks,show_clusters_clicks, show_routes_click
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
     clusters = kmeans.fit_predict(standardized_routes)
 
-    #fig_routes = go.Figure()
+    # Count the number of typhoons in each cluster
+    cluster_counts = np.bincount(clusters)
 
     for lons, lats in west_pacific_storms:
         fig_routes.add_trace(go.Scattergeo(
@@ -647,7 +648,7 @@ def update_route_clusters(analyze_clicks,show_clusters_clicks, show_routes_click
         cluster_center = kmeans.cluster_centers_[i].reshape(-1, 2)
         cluster_equations, (lon_min, lon_max) = generate_cluster_equations(cluster_center)
         
-        equations_output.append(html.H4(f"Cluster {i+1}"))
+        equations_output.append(html.H4(f"Cluster {i+1} (Typhoons: {cluster_counts[i]})"))
         for name, eq in cluster_equations:
             equations_output.append(html.P(f"{name}: {eq}"))
         
@@ -661,7 +662,7 @@ def update_route_clusters(analyze_clicks,show_clusters_clicks, show_routes_click
             lon=cluster_center[:, 0],
             lat=cluster_center[:, 1],
             mode='lines',
-            name=f'Cluster {i+1}',
+            name=f'Cluster {i+1} (n={cluster_counts[i]})',
             line=dict(width=3),
             visible=(button_id == 'show-clusters-button')
         ))
