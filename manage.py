@@ -23,7 +23,7 @@ def get_venv_python():
 
 def run_in_venv(command):
     venv_python = get_venv_python()
-    return subprocess.run([venv_python] + command, check=True)
+    return subprocess.run([venv_python] + command, check=True, capture_output=True, text=True)
 
 def update_from_github():
     try:
@@ -47,18 +47,23 @@ def update_from_github():
 
 def update_requirements():
     try:
-        run_in_venv(["-m", "pip", "install", "-r", "requirements.txt"])
+        result = run_in_venv(["-m", "pip", "install", "-r", "requirements.txt"])
         print("Successfully updated requirements in virtual environment.")
+        print(result.stdout)
         return True
     except subprocess.CalledProcessError as e:
         print(f"Failed to update requirements: {str(e)}")
+        print(e.stdout)
         return False
 
 def run_script():
     try:
-        run_in_venv(["typhoon_analysis.py"])
+        result = run_in_venv(["typhoon_analysis.py"])
+        print("Script executed successfully.")
+        print(result.stdout)
     except subprocess.CalledProcessError as e:
         print(f"Error running script: {str(e)}")
+        print(e.stdout)
 
 def main_menu():
     menu = """
@@ -67,30 +72,19 @@ def main_menu():
 2. Update installed packages
 3. Run Typhoon Analysis Dashboard
 4. Exit
-    
-Enter your choice (1-4): """
-    return menu
 
-def open_new_console():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    script_path = os.path.join(script_dir, "manage.py")
-    
-    if sys.platform == "win32":
-        # For Windows
-        subprocess.Popen(f'start cmd /k python "{script_path}" run_menu', shell=True)
-    else:
-        # For Linux and MacOS
-        terminal_command = "x-terminal-emulator -e" if sys.platform.startswith("linux") else "open -a Terminal"
-        subprocess.Popen(f'{terminal_command} python3 "{script_path}" run_menu', shell=True)
+Enter your choice (1-4): """
+    return input(menu)
 
 def run_menu():
     create_venv()
     while True:
-        choice = input(main_menu())
+        choice = main_menu()
         
         if choice == '1':
             if update_from_github():
                 print("All scripts and requirements.txt updated. Please restart the manager to use the latest version.")
+                input("Press Enter to exit...")
                 sys.exit(0)
         elif choice == '2':
             update_requirements()
@@ -101,9 +95,17 @@ def run_menu():
             break
         else:
             print("Invalid choice. Please try again.")
+        
+        input("Press Enter to continue...")
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "run_menu":
         run_menu()
     else:
-        open_new_console()
+        script_path = os.path.abspath(__file__)
+        if sys.platform == "win32":
+            subprocess.Popen(f'start cmd /k python "{script_path}" run_menu', shell=True)
+        else:
+            print("This script is designed to open a new window on Windows.")
+            print("On other operating systems, the menu will run in the current terminal.")
+            run_menu()
