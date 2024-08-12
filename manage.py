@@ -23,7 +23,7 @@ def get_venv_python():
 
 def run_in_venv(command):
     venv_python = get_venv_python()
-    return subprocess.run([venv_python] + command, check=True, capture_output=True, text=True)
+    return subprocess.run([venv_python] + command, check=True)
 
 def update_from_github():
     try:
@@ -47,23 +47,18 @@ def update_from_github():
 
 def update_requirements():
     try:
-        result = run_in_venv(["-m", "pip", "install", "-r", "requirements.txt"])
+        run_in_venv(["-m", "pip", "install", "-r", "requirements.txt"])
         print("Successfully updated requirements in virtual environment.")
-        print(result.stdout)
         return True
     except subprocess.CalledProcessError as e:
         print(f"Failed to update requirements: {str(e)}")
-        print(e.stdout)
         return False
 
 def run_script():
     try:
-        result = run_in_venv(["typhoon_analysis.py"])
-        print("Script executed successfully.")
-        print(result.stdout)
+        run_in_venv(["typhoon_analysis.py"])
     except subprocess.CalledProcessError as e:
         print(f"Error running script: {str(e)}")
-        print(e.stdout)
 
 def main_menu():
     menu = """
