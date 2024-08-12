@@ -5,6 +5,7 @@ import subprocess
 import requests
 import venv
 import glob
+import cmd
 
 # Path for the virtual environment
 VENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'venv')
@@ -61,30 +62,36 @@ def run_script():
     except subprocess.CalledProcessError as e:
         print(f"Error running script: {str(e)}")
 
-def main_menu():
+class TyphoonAnalysisShell(cmd.Cmd):
+    intro = "Welcome to the Typhoon Analysis Dashboard Manager. Type help or ? to list commands.\n"
+    prompt = "(typhoon) "
+
+    def do_update(self, arg):
+        """Update all scripts and requirements.txt from GitHub"""
+        if update_from_github():
+            print("All scripts and requirements.txt updated. Please restart the manager to use the latest version.")
+
+    def do_install(self, arg):
+        """Update installed packages"""
+        update_requirements()
+
+    def do_run(self, arg):
+        """Run Typhoon Analysis Dashboard"""
+        run_script()
+
+    def do_exit(self, arg):
+        """Exit the Typhoon Analysis Dashboard Manager"""
+        print("Exiting...")
+        return True
+
+    def do_EOF(self, arg):
+        """Exit on EOF"""
+        print("Exiting...")
+        return True
+
+def main():
     create_venv()
-    while True:
-        print("\n--- Typhoon Analysis Dashboard Manager ---")
-        print("1. Update all scripts and requirements.txt from GitHub")
-        print("2. Update installed packages")
-        print("3. Run Typhoon Analysis Dashboard")
-        print("4. Exit")
-        
-        choice = input("Enter your choice (1-4): ")
-        
-        if choice == '1':
-            if update_from_github():
-                print("All scripts and requirements.txt updated. Please restart the manager to use the latest version.")
-                sys.exit(0)
-        elif choice == '2':
-            update_requirements()
-        elif choice == '3':
-            run_script()
-        elif choice == '4':
-            print("Exiting...")
-            break
-        else:
-            print("Invalid choice. Please try again.")
+    TyphoonAnalysisShell().cmdloop()
 
 if __name__ == "__main__":
-    main_menu()
+    main()
