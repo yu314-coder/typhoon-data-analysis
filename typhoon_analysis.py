@@ -648,7 +648,12 @@ def update_route_clusters(analyze_clicks, show_clusters_clicks, show_routes_clic
         cluster_center = kmeans.cluster_centers_[i].reshape(-1, 2)
         cluster_equations, (lon_min, lon_max) = generate_cluster_equations(cluster_center)
         
-        equations_output.append(html.H4(f"Cluster {i+1} (Typhoons: {cluster_counts[i]})"))
+        #equations_output.append(html.H4(f"Cluster {i+1} (Typhoons: {cluster_counts[i]})"))
+        equations_output.append(html.H4([
+            f"Cluster {i+1} (Typhoons: ",
+                html.Span(f"{cluster_counts[i]}", style={'color': 'blue'}),
+                    ")"
+                    ]))
         for name, eq in cluster_equations:
             equations_output.append(html.P(f"{name}: {eq}"))
         
