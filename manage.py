@@ -1,6 +1,14 @@
 import sys
 import subprocess
 import importlib.util
+import os
+import git
+import venv
+import glob
+import time
+import socket
+import requests
+from requests.exceptions import RequestException
 
 def install_package(package):
     subprocess.check_call([sys.executable, "-m", "pip", "install", package])
@@ -14,16 +22,6 @@ if importlib.util.find_spec("git") is None:
 if importlib.util.find_spec("requests") is None:
     print("Installing requests...")
     install_package("requests")
-import os
-import sys
-import git
-import subprocess
-import venv
-import glob
-import time
-import socket
-import requests
-from requests.exceptions import RequestException
 
 # Path for the virtual environment
 VENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'venv')
@@ -44,11 +42,36 @@ def get_venv_python():
 def run_in_venv(command):
     venv_python = get_venv_python()
     return subprocess.Popen([venv_python] + command)
-    
+
 def update_from_github():
     try:
         repo = git.Repo(os.path.dirname(os.path.abspath(__file__)))
         origin = repo.remotes.origin
+
+        # Check for local changes
+        if repo.is_dirty(untracked_files=True):
+            print("Local changes detected. Please choose an option:")
+            print("1. Stash local changes and pull")
+            print("2. Discard local changes and pull")
+            print("3. Cancel update")
+            
+            choice = input("Enter your choice (1-3): ")
+            
+            if choice == '1':
+                print("Stashing local changes...")
+                repo.git.stash()
+            elif choice == '2':
+                print("Discarding local changes...")
+                repo.git.reset('--hard')
+                repo.git.clean('-fd')
+            elif choice == '3':
+                print("Update cancelled.")
+                return False
+            else:
+                print("Invalid choice. Update cancelled.")
+                return False
+
+        # Pull changes from remote
         origin.pull()
         print("Successfully updated from GitHub.")
         
@@ -59,6 +82,14 @@ def update_from_github():
         # Update requirements.txt
         if os.path.exists('requirements.txt'):
             print("Updated requirements.txt")
+        
+        # Apply stashed changes if they were stashed
+        if 'choice' in locals() and choice == '1':
+            try:
+                repo.git.stash('pop')
+                print("Reapplied local changes.")
+            except git.GitCommandError:
+                print("Failed to reapply local changes. They remain in the stash.")
         
         return True
     except Exception as e:
@@ -117,6 +148,7 @@ def run_script():
         if 'process' in locals():
             process.terminate()
         print("Server stopped.")
+
 def main_menu():
     create_venv()
     while True:
