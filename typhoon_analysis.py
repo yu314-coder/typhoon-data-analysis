@@ -24,6 +24,13 @@ from fractions import Fraction
 from concurrent.futures import ThreadPoolExecutor
 from sklearn.metrics import mean_squared_error
 import statsmodels.api as sm
+import schedule
+import time
+import threading
+import requests
+from io import StringIO   
+import tempfile
+import shutil
 
 # Add command-line argument parsing
 parser = argparse.ArgumentParser(description='Typhoon Analysis Dashboard')
@@ -35,6 +42,7 @@ DATA_PATH = args.data_path
 
 ONI_DATA_PATH = os.path.join(DATA_PATH, 'oni_data.csv')
 TYPHOON_DATA_PATH = os.path.join(DATA_PATH, 'processed_typhoon_data.csv')
+iBtrace_uri = 'https://www.ncei.noaa.gov/data/international-best-track-archive-for-climate-stewardship-ibtracs/v04r01/access/csv/ibtracs.WP.list.v04r01.csv'
 
 CACHE_FILE = 'ibtracs_cache.pkl'
 CACHE_EXPIRY_DAYS = 1
@@ -54,13 +62,97 @@ def load_ibtracs_data():
             with open(CACHE_FILE, 'rb') as f:
                 return pickle.load(f)
     
-    print("Fetching new data from ibtracs...")
-    ibtracs = tracks.TrackDataset(basin='west_pacific', source='ibtracs')
+    if os.path.exists(LOCAL_iBtrace_PATH):
+        print("Using local IBTrACS file...")
+        ibtracs = tracks.TrackDataset(basin='west_pacific', source='ibtracs', ibtracs_url=LOCAL_iBtrace_PATH)
+    else:
+        print("Local IBTrACS file not found. Fetching data from remote server...")
+        try:
+            response = requests.get(iBtrace_uri)
+            response.raise_for_status()
+            
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as temp_file:
+                temp_file.write(response.text)
+                temp_file_path = temp_file.name
+            
+            # Save the downloaded data as the local file
+            shutil.move(temp_file_path, LOCAL_iBtrace_PATH)
+            print(f"Downloaded data saved to {LOCAL_iBtrace_PATH}")
+            
+            ibtracs = tracks.TrackDataset(basin='west_pacific', source='ibtracs', ibtracs_url=LOCAL_iBtrace_PATH)
+        except requests.RequestException as e:
+            print(f"Error downloading data: {e}")
+            print("No local file available and download failed. Unable to load IBTrACS data.")
+            return None
     
     with open(CACHE_FILE, 'wb') as f:
         pickle.dump(ibtracs, f)
     
     return ibtracs
+    
+def update_ibtracs_data():
+    global ibtracs
+    print("Checking for IBTrACS data updates...")
+
+    try:
+        # Get the last-modified time of the remote file
+        response = requests.head(iBtrace_uri)
+        remote_last_modified = datetime.strptime(response.headers['Last-Modified'], '%a, %d %b %Y %H:%M:%S GMT')
+
+        # Get the last-modified time of the local file
+        if os.path.exists(LOCAL_iBtrace_PATH):
+            local_last_modified = datetime.fromtimestamp(os.path.getmtime(LOCAL_iBtrace_PATH))
+        else:
+            local_last_modified = datetime.min
+
+        # Compare the modification times
+        if remote_last_modified <= local_last_modified:
+            print("Local IBTrACS data is up to date. No update needed.")
+            if os.path.exists(CACHE_FILE):
+                # Update the cache file's timestamp to extend its validity
+                os.utime(CACHE_FILE, None)
+                print("Cache file timestamp updated.")
+            return
+
+        print("Remote data is newer. Updating IBTrACS data...")
+        
+        # Download the new data
+        response = requests.get(iBtrace_uri)
+        response.raise_for_status()
+        
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as temp_file:
+            temp_file.write(response.text)
+            temp_file_path = temp_file.name
+        
+        # Save the downloaded data as the local file
+        shutil.move(temp_file_path, LOCAL_iBtrace_PATH)
+        print(f"Downloaded data saved to {LOCAL_iBtrace_PATH}")
+        
+        # Update the last modified time of the local file to match the remote file
+        os.utime(LOCAL_iBtrace_PATH, (remote_last_modified.timestamp(), remote_last_modified.timestamp()))
+        
+        ibtracs = tracks.TrackDataset(basin='west_pacific', source='ibtracs', ibtracs_url=LOCAL_iBtrace_PATH)
+        
+        with open(CACHE_FILE, 'wb') as f:
+            pickle.dump(ibtracs, f)
+        print("IBTrACS data updated and cache refreshed.")
+
+    except requests.RequestException as e:
+        print(f"Error checking or downloading data: {e}")
+        if os.path.exists(LOCAL_iBtrace_PATH):
+            print("Using existing local file.")
+            ibtracs = tracks.TrackDataset(basin='west_pacific', source='ibtracs', ibtracs_url=LOCAL_iBtrace_PATH)
+            if os.path.exists(CACHE_FILE):
+                # Update the cache file's timestamp even when using existing local file
+                os.utime(CACHE_FILE, None)
+                print("Cache file timestamp updated.")
+        else:
+            print("No local file available. Update failed.")
+
+def run_schedule():
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
 
 def analyze_typhoon_generation(merged_data, start_date, end_date):
     filtered_data = merged_data[
@@ -278,6 +370,14 @@ merged_data = merge_data(oni_long, typhoon_max)
 data = preprocess_data(oni_data, typhoon_data)
 max_wind_speed, min_pressure = calculate_max_wind_min_pressure(typhoon_data)
 
+# Schedule the update to run daily at 1:00 AM
+schedule.every().day.at("01:00").do(update_ibtracs_data)
+
+# Run the scheduler in a separate thread
+scheduler_thread = threading.Thread(target=run_schedule)
+scheduler_thread.start()
+
+
 app = dash.Dash(__name__)
 
 app.layout = html.Div([
@@ -287,7 +387,7 @@ app.layout = html.Div([
         dcc.Input(id='start-year', type='number', placeholder='Start Year', value=2000, min=1900, max=2024, step=1),
         dcc.Input(id='start-month', type='number', placeholder='Start Month', value=1, min=1, max=12, step=1),
         dcc.Input(id='end-year', type='number', placeholder='End Year', value=2024, min=1900, max=2024, step=1),
-        dcc.Input(id='end-month', type='number', placeholder='End Month', value=12, min=1, max=12, step=1),
+        dcc.Input(id='end-month', type='number', placeholder='End Month', value=6, min=1, max=12, step=1),
         dcc.Dropdown(
             id='enso-dropdown',
             options=[
