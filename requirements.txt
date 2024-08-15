@@ -19,3 +19,4 @@ dash-html-components==2.0.0
 dash-table==5.0.0
 Cartopy==0.23.0
 statsmodels==0.14.1
+schedule==1.2.0
