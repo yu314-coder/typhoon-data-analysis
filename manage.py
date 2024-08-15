@@ -1,3 +1,19 @@
+import sys
+import subprocess
+import importlib.util
+
+def install_package(package):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+# Check and install gitpython
+if importlib.util.find_spec("git") is None:
+    print("Installing gitpython...")
+    install_package("gitpython")
+
+# Check and install requests
+if importlib.util.find_spec("requests") is None:
+    print("Installing requests...")
+    install_package("requests")
 import os
 import sys
 import git
