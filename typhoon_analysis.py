@@ -42,6 +42,7 @@ DATA_PATH = args.data_path
 
 ONI_DATA_PATH = os.path.join(DATA_PATH, 'oni_data.csv')
 TYPHOON_DATA_PATH = os.path.join(DATA_PATH, 'processed_typhoon_data.csv')
+LOCAL_iBtrace_PATH =  os.path.join(DATA_PATH, 'ibtracs.WP.list.v04r01.csv')
 iBtrace_uri = 'https://www.ncei.noaa.gov/data/international-best-track-archive-for-climate-stewardship-ibtracs/v04r01/access/csv/ibtracs.WP.list.v04r01.csv'
 
 CACHE_FILE = 'ibtracs_cache.pkl'
