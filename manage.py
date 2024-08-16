@@ -135,7 +135,7 @@ def run_script():
         url = 'http://127.0.0.1:8050/'
         
         # Wait for the server to be ready
-        max_attempts = 30
+        max_attempts = 200
         for attempt in range(max_attempts):
             try:
                 response = requests.get(url)
