@@ -53,6 +53,20 @@ CACHE_FILE = 'ibtracs_cache.pkl'
 CACHE_EXPIRY_DAYS = 1
 last_oni_update = None
 
+
+def should_update_oni():
+    today = datetime.now()
+    # Beginning of the month: 1st day
+    if today.day == 1:
+        return True
+    # Middle of the month: 15th day
+    if today.day == 15:
+        return True
+    # End of the month: last day
+    if today.day == (today.replace(day=1, month=today.month%12+1) - timedelta(days=1)).day:
+        return True
+    return False
+
 color_map = {
     'Severe Typhoon': 'rgb(255, 0, 0)',
     'Moderate Typhoon': 'rgb(255, 165, 0)',
@@ -64,7 +78,7 @@ def download_oni_file(url, filename):
     print(f"Downloading file from {url}...")
     try:
         response = requests.get(url)
-        response.raise_for_status()  # 如果響應狀態不是 200，將引發異常
+        response.raise_for_status()  # Raises an exception for non-200 status codes
         with open(filename, 'wb') as f:
             f.write(response.content)
         print(f"File successfully downloaded and saved as {filename}")
@@ -135,7 +149,7 @@ def update_oni_data():
     global last_oni_update
     current_date = date.today()
     
-    # 檢查是否已經在今天更新過
+    # Check if already updated today
     if last_oni_update == current_date:
         print("ONI data already checked today. Skipping update.")
         return
@@ -147,20 +161,20 @@ def update_oni_data():
     
     if download_oni_file(url, temp_file):
         if not os.path.exists(input_file) or not filecmp.cmp(temp_file, input_file, shallow=False):
-            # 文件不存在或有更新
+            # File doesn't exist or has been updated
             os.replace(temp_file, input_file)
             print("New ONI data detected. Converting to CSV.")
             convert_oni_ascii_to_csv(input_file, output_file)
             print("ONI data updated successfully.")
         else:
             print("ONI data is up to date. No conversion needed.")
-            os.remove(temp_file)  # 刪除臨時文件
+            os.remove(temp_file)  # Remove temporary file
         
         last_oni_update = current_date
     else:
         print("Failed to download ONI data.")
         if os.path.exists(temp_file):
-            os.remove(temp_file)  # 確保清理臨時文件
+            os.remove(temp_file)  # Ensure cleanup of temporary file
 
 def load_ibtracs_data():
     if os.path.exists(CACHE_FILE):
@@ -1275,7 +1289,7 @@ def calculate_longitude_logistic_regression(data):
 
 if __name__ == "__main__":
     print(f"Using data path: {DATA_PATH}")
-    # 在啟動應用程序之前更新 ONI 數據
+    # Update ONI data before starting the application
     update_oni_data()
     oni_df = fetch_oni_data_from_csv(ONI_DATA_PATH)
     ibtracs = load_ibtracs_data()
@@ -1287,13 +1301,13 @@ if __name__ == "__main__":
     max_wind_speed, min_pressure = calculate_max_wind_min_pressure(typhoon_data)
     
     
-    # 設置 IBTrACS 數據每天更新一次
+    # Schedule IBTrACS data update daily
     schedule.every().day.at("01:00").do(update_ibtracs_data)
     
-    # 設置 ONI 數據每月第一天更新一次
-    schedule.every().day.at("00:00").do(lambda: update_oni_data() if datetime.now().day == 1 else None)
+    # Schedule ONI data check daily, but only update on specified dates
+    schedule.every().day.at("00:00").do(lambda: update_oni_data() if should_update_oni() else None)
     
-    # 在單獨的線程中運行調度程序
+    # Run the scheduler in a separate thread
     scheduler_thread = threading.Thread(target=run_schedule)
     scheduler_thread.start()
     
