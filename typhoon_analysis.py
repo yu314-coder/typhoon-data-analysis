@@ -15,6 +15,7 @@ from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
+from datetime import date, datetime
 from scipy import stats
 from scipy.optimize import minimize, curve_fit
 from sklearn.linear_model import LinearRegression
@@ -30,7 +31,10 @@ import threading
 import requests
 from io import StringIO   
 import tempfile
+import csv  
+from collections import defaultdict
 import shutil
+import filecmp
 
 # Add command-line argument parsing
 parser = argparse.ArgumentParser(description='Typhoon Analysis Dashboard')
@@ -47,6 +51,7 @@ iBtrace_uri = 'https://www.ncei.noaa.gov/data/international-best-track-archive-f
 
 CACHE_FILE = 'ibtracs_cache.pkl'
 CACHE_EXPIRY_DAYS = 1
+last_oni_update = None
 
 color_map = {
     'Severe Typhoon': 'rgb(255, 0, 0)',
@@ -54,6 +59,108 @@ color_map = {
     'Mild Typhoon': 'rgb(255, 255, 0)',
     'Tropical Depression': 'rgb(0, 255, 255)'
 }
+
+def download_oni_file(url, filename):
+    print(f"Downloading file from {url}...")
+    try:
+        response = requests.get(url)
+        response.raise_for_status()  # 如果響應狀態不是 200，將引發異常
+        with open(filename, 'wb') as f:
+            f.write(response.content)
+        print(f"File successfully downloaded and saved as {filename}")
+        return True
+    except requests.RequestException as e:
+        print(f"Download failed. Error: {e}")
+        return False
+
+
+def convert_oni_ascii_to_csv(input_file, output_file):
+    data = defaultdict(lambda: [''] * 12)
+    season_to_month = {
+        'DJF': 12, 'JFM': 1, 'FMA': 2, 'MAM': 3, 'AMJ': 4, 'MJJ': 5,
+        'JJA': 6, 'JAS': 7, 'ASO': 8, 'SON': 9, 'OND': 10, 'NDJ': 11
+    }
+    
+    print(f"Attempting to read file: {input_file}")
+    try:
+        with open(input_file, 'r') as f:
+            lines = f.readlines()
+            print(f"Successfully read {len(lines)} lines")
+            
+            if len(lines) <= 1:
+                print("Error: File is empty or contains only header")
+                return
+            
+            for line in lines[1:]:  # Skip header
+                parts = line.split()
+                if len(parts) >= 4:
+                    season, year = parts[0], parts[1]
+                    anom = parts[-1]
+                    
+                    if season in season_to_month:
+                        month = season_to_month[season]
+                        
+                        if season == 'DJF':
+                            year = str(int(year) - 1)
+                        
+                        data[year][month-1] = anom
+                    else:
+                        print(f"Warning: Unknown season: {season}")
+                else:
+                    print(f"Warning: Skipping invalid line: {line.strip()}")
+            
+            print(f"Processed data for {len(data)} years")
+    except Exception as e:
+        print(f"Error reading file: {e}")
+        return
+
+    print(f"Attempting to write file: {output_file}")
+    try:
+        with open(output_file, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Year', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'])
+            
+            for year in sorted(data.keys()):
+                row = [year] + data[year]
+                writer.writerow(row)
+            
+            print(f"Successfully wrote {len(data)} rows of data")
+    except Exception as e:
+        print(f"Error writing file: {e}")
+        return
+
+    print(f"Conversion complete. Data saved to {output_file}")
+
+def update_oni_data():
+    global last_oni_update
+    current_date = date.today()
+    
+    # 檢查是否已經在今天更新過
+    if last_oni_update == current_date:
+        print("ONI data already checked today. Skipping update.")
+        return
+    
+    url = "https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt"
+    temp_file = os.path.join(DATA_PATH, "temp_oni.ascii.txt")
+    input_file = os.path.join(DATA_PATH, "oni.ascii.txt")
+    output_file = ONI_DATA_PATH
+    
+    if download_oni_file(url, temp_file):
+        if not os.path.exists(input_file) or not filecmp.cmp(temp_file, input_file, shallow=False):
+            # 文件不存在或有更新
+            os.replace(temp_file, input_file)
+            print("New ONI data detected. Converting to CSV.")
+            convert_oni_ascii_to_csv(input_file, output_file)
+            print("ONI data updated successfully.")
+        else:
+            print("ONI data is up to date. No conversion needed.")
+            os.remove(temp_file)  # 刪除臨時文件
+        
+        last_oni_update = current_date
+    else:
+        print("Failed to download ONI data.")
+        if os.path.exists(temp_file):
+            os.remove(temp_file)  # 確保清理臨時文件
 
 def load_ibtracs_data():
     if os.path.exists(CACHE_FILE):
@@ -362,21 +469,21 @@ def generate_cluster_equations(cluster_center):
 
     return equations, (x_min, x_max)
     
-oni_df = fetch_oni_data_from_csv(ONI_DATA_PATH)
-ibtracs = load_ibtracs_data()
-oni_data, typhoon_data = load_data(ONI_DATA_PATH, TYPHOON_DATA_PATH)
-oni_long = process_oni_data_with_cache(oni_data)
-typhoon_max = process_typhoon_data_with_cache(typhoon_data)
-merged_data = merge_data(oni_long, typhoon_max)
-data = preprocess_data(oni_data, typhoon_data)
-max_wind_speed, min_pressure = calculate_max_wind_min_pressure(typhoon_data)
-
-# Schedule the update to run daily at 1:00 AM
-schedule.every().day.at("01:00").do(update_ibtracs_data)
-
-# Run the scheduler in a separate thread
-scheduler_thread = threading.Thread(target=run_schedule)
-scheduler_thread.start()
+#oni_df = fetch_oni_data_from_csv(ONI_DATA_PATH)
+#ibtracs = load_ibtracs_data()
+#oni_data, typhoon_data = load_data(ONI_DATA_PATH, TYPHOON_DATA_PATH)
+#oni_long = process_oni_data_with_cache(oni_data)
+#typhoon_max = process_typhoon_data_with_cache(typhoon_data)
+#merged_data = merge_data(oni_long, typhoon_max)
+#data = preprocess_data(oni_data, typhoon_data)
+#max_wind_speed, min_pressure = calculate_max_wind_min_pressure(typhoon_data)
+#
+## Schedule the update to run daily at 1:00 AM
+#schedule.every().day.at("01:00").do(update_ibtracs_data)
+#
+## Run the scheduler in a separate thread
+#scheduler_thread = threading.Thread(target=run_schedule)
+#scheduler_thread.start()
 
 
 app = dash.Dash(__name__)
@@ -1168,4 +1275,27 @@ def calculate_longitude_logistic_regression(data):
 
 if __name__ == "__main__":
     print(f"Using data path: {DATA_PATH}")
+    # 在啟動應用程序之前更新 ONI 數據
+    update_oni_data()
+    oni_df = fetch_oni_data_from_csv(ONI_DATA_PATH)
+    ibtracs = load_ibtracs_data()
+    oni_data, typhoon_data = load_data(ONI_DATA_PATH, TYPHOON_DATA_PATH)
+    oni_long = process_oni_data_with_cache(oni_data)
+    typhoon_max = process_typhoon_data_with_cache(typhoon_data)
+    merged_data = merge_data(oni_long, typhoon_max)
+    data = preprocess_data(oni_data, typhoon_data)
+    max_wind_speed, min_pressure = calculate_max_wind_min_pressure(typhoon_data)
+    
+    
+    # 設置 IBTrACS 數據每天更新一次
+    schedule.every().day.at("01:00").do(update_ibtracs_data)
+    
+    # 設置 ONI 數據每月第一天更新一次
+    schedule.every().day.at("00:00").do(lambda: update_oni_data() if datetime.now().day == 1 else None)
+    
+    # 在單獨的線程中運行調度程序
+    scheduler_thread = threading.Thread(target=run_schedule)
+    scheduler_thread.start()
+    
+    
     app.run_server(debug=True, host='127.0.0.1', port=8050)
