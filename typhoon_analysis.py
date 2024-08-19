@@ -74,6 +74,52 @@ color_map = {
     'Tropical Depression': 'rgb(0, 255, 255)'
 }
 
+def convert_typhoondata(input_file, output_file):
+    with open(input_file, 'r') as infile:
+        # Skip the title and the unit line.
+        next(infile)
+        next(infile)
+        
+        reader = csv.reader(infile)
+        
+        # Used for storing data for each SID
+        sid_data = defaultdict(list)
+        
+        for row in reader:
+            if not row:  # Skip the blank lines
+                continue
+            
+            sid = row[0]
+            iso_time = row[6]
+            sid_data[sid].append((row, iso_time))
+
+    with open(output_file, 'w', newline='') as outfile:
+        fieldnames = ['SID', 'ISO_TIME', 'LAT', 'LON', 'SEASON', 'NAME', 'WMO_WIND', 'WMO_PRES', 'USA_WIND', 'USA_PRES', 'START_DATE', 'END_DATE']
+        writer = csv.DictWriter(outfile, fieldnames=fieldnames)
+        
+        writer.writeheader()
+        
+        for sid, data in sid_data.items():
+            start_date = min(data, key=lambda x: x[1])[1]
+            end_date = max(data, key=lambda x: x[1])[1]
+            
+            for row, iso_time in data:
+                writer.writerow({
+                    'SID': row[0],
+                    'ISO_TIME': iso_time,
+                    'LAT': row[8],
+                    'LON': row[9],
+                    'SEASON': row[1],
+                    'NAME': row[5],
+                    'WMO_WIND': row[10].strip() or ' ',  
+                    'WMO_PRES': row[11].strip() or ' ',
+                    'USA_WIND': row[23].strip() or ' ',
+                    'USA_PRES': row[24].strip() or ' ',
+                    'START_DATE': start_date,
+                    'END_DATE': end_date
+                })
+
+
 def download_oni_file(url, filename):
     print(f"Downloading file from {url}...")
     try:
@@ -1293,6 +1339,7 @@ if __name__ == "__main__":
     update_oni_data()
     oni_df = fetch_oni_data_from_csv(ONI_DATA_PATH)
     ibtracs = load_ibtracs_data()
+    convert_typhoondata(LOCAL_iBtrace_PATH, TYPHOON_DATA_PATH)
     oni_data, typhoon_data = load_data(ONI_DATA_PATH, TYPHOON_DATA_PATH)
     oni_long = process_oni_data_with_cache(oni_data)
     typhoon_max = process_typhoon_data_with_cache(typhoon_data)
