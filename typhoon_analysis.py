@@ -68,10 +68,13 @@ def should_update_oni():
     return False
 
 color_map = {
-    'Severe Typhoon': 'rgb(255, 0, 0)',
-    'Moderate Typhoon': 'rgb(255, 165, 0)',
-    'Mild Typhoon': 'rgb(255, 255, 0)',
-    'Tropical Depression': 'rgb(0, 255, 255)'
+    'C5 Super Typhoon': 'rgb(255, 0, 0)',      # Red
+    'C4 Very Strong Typhoon': 'rgb(255, 63, 0)', # Red-Orange
+    'C3 Strong Typhoon': 'rgb(255, 127, 0)',    # Orange
+    'C2 Typhoon': 'rgb(255, 191, 0)',          # Orange-Yellow
+    'C1 Typhoon': 'rgb(255, 255, 0)',          # Yellow
+    'Tropical Storm': 'rgb(0, 255, 255)',       # Cyan
+    'Tropical Depression': 'rgb(173, 216, 230)' # Light Blue
 }
 
 def convert_typhoondata(input_file, output_file):
@@ -347,13 +350,21 @@ def cache_key_generator(*args, **kwargs):
     return key.hexdigest()
 
 def categorize_typhoon(wind_speed):
-    wind_speed_kt = wind_speed / 2.526992 # Convert m/s to kt
-    if wind_speed_kt >= 51:
-        return 'Severe Typhoon'
-    elif wind_speed_kt >= 32.7:
-        return 'Moderate Typhoon'
-    elif wind_speed_kt >= 17.2:
-        return 'Mild Typhoon'
+    wind_speed_kt = wind_speed / 2  # Convert kt to m/s
+    
+    # Add category classification
+    if wind_speed_kt >= 137/2.35:
+        return 'C5 Super Typhoon'
+    elif wind_speed_kt >= 113/2.35:
+        return 'C4 Very Strong Typhoon' 
+    elif wind_speed_kt >= 96/2.35:
+        return 'C3 Strong Typhoon'
+    elif wind_speed_kt >= 83/2.35:
+        return 'C2 Typhoon'
+    elif wind_speed_kt >= 64/2.35:
+        return 'C1 Typhoon'
+    elif wind_speed_kt >= 34/2.35:
+        return 'Tropical Storm'
     else:
         return 'Tropical Depression'
 
@@ -548,6 +559,24 @@ def generate_cluster_equations(cluster_center):
 
 app = dash.Dash(__name__)
 
+# First, add the classification standards
+atlantic_standard = {
+    'C5 Super Typhoon': {'wind_speed': 137, 'color': 'rgb(255, 0, 0)'},      
+    'C4 Very Strong Typhoon': {'wind_speed': 113, 'color': 'rgb(255, 63, 0)'}, 
+    'C3 Strong Typhoon': {'wind_speed': 96, 'color': 'rgb(255, 127, 0)'},    
+    'C2 Typhoon': {'wind_speed': 83, 'color': 'rgb(255, 191, 0)'},          
+    'C1 Typhoon': {'wind_speed': 64, 'color': 'rgb(255, 255, 0)'},          
+    'Tropical Storm': {'wind_speed': 34, 'color': 'rgb(0, 255, 255)'},       
+    'Tropical Depression': {'wind_speed': 0, 'color': 'rgb(173, 216, 230)'}  
+}
+
+taiwan_standard = {
+    'Strong Typhoon': {'wind_speed': 51.0, 'color': 'rgb(255, 0, 0)'},       # >= 51.0 m/s
+    'Medium Typhoon': {'wind_speed': 33.7, 'color': 'rgb(255, 127, 0)'},     # 33.7-50.9 m/s
+    'Mild Typhoon': {'wind_speed': 17.2, 'color': 'rgb(255, 255, 0)'},       # 17.2-33.6 m/s
+    'Tropical Depression': {'wind_speed': 0, 'color': 'rgb(173, 216, 230)'}  # < 17.2 m/s
+}
+
 app.layout = html.Div([
     html.H1("Typhoon Analysis Dashboard"),
     
@@ -613,8 +642,17 @@ app.layout = html.Div([
         dcc.Dropdown(
             id='typhoon-dropdown',
             style={'width': '300px'}
+        ),
+        dcc.Dropdown(
+            id='classification-standard',
+            options=[
+                {'label': 'Atlantic Standard', 'value': 'atlantic'},
+                {'label': 'Taiwan Standard', 'value': 'taiwan'}
+            ],
+            value='atlantic',
+            style={'width': '200px'}
         )
-    ],style={'display': 'flex', 'gap': '10px'}),
+    ], style={'display': 'flex', 'gap': '10px'}),
     
     dcc.Graph(id='typhoon-path-animation'),
     dcc.Graph(id='all-years-regression-graph'),
@@ -635,6 +673,17 @@ app.layout = html.Div([
     ]),
     html.Div(id='cluster-info'),
     
+    html.Div([
+        dcc.Dropdown(
+            id='classification-standard',
+            options=[
+                {'label': 'Atlantic Standard', 'value': 'atlantic'},
+                {'label': 'Taiwan Standard', 'value': 'taiwan'}
+            ],
+            value='atlantic',
+            style={'width': '200px'}
+        )
+    ], style={'margin': '10px'}),
     
 ], style={'font-family': 'Arial, sans-serif'})
 
@@ -681,16 +730,17 @@ def update_typhoon_dropdown(selected_year):
 @app.callback(
     Output('typhoon-path-animation', 'figure'),
     [Input('year-dropdown', 'value'),
-     Input('typhoon-dropdown', 'value')]
+     Input('typhoon-dropdown', 'value'),
+     Input('classification-standard', 'value')]
 )
-def update_typhoon_path(selected_year, selected_sid):
+def update_typhoon_path(selected_year, selected_sid, standard):
     if not selected_year or not selected_sid:
         raise PreventUpdate
 
     storm = ibtracs.get_storm(selected_sid)
-    return create_typhoon_path_figure(storm, selected_year)
+    return create_typhoon_path_figure(storm, selected_year, standard)
 
-def create_typhoon_path_figure(storm, selected_year):
+def create_typhoon_path_figure(storm, selected_year, standard='atlantic'):
     fig = go.Figure()
 
     fig.add_trace(
@@ -718,8 +768,7 @@ def create_typhoon_path_figure(storm, selected_year):
 
     frames = []
     for i in range(len(storm.time)):
-        category = categorize_typhoon(storm.vmax[i])
-        color = color_map.get(category, 'gray')
+        category, color = categorize_typhoon_by_standard(storm.vmax[i], standard)
         
         r34_ne = storm.dict['USA_R34_NE'][i] if 'USA_R34_NE' in storm.dict else None
         r34_se = storm.dict['USA_R34_SE'][i] if 'USA_R34_SE' in storm.dict else None
@@ -1332,6 +1381,40 @@ def calculate_longitude_logistic_regression(data):
             html.Li(f"Neutral conditions: {neutral_western:.2%}")
         ])
     ])
+
+def categorize_typhoon_by_standard(wind_speed, standard='atlantic'):
+    """
+    Categorize typhoon based on wind speed and chosen standard
+    wind_speed is in knots
+    """
+    if standard == 'taiwan':
+        # Convert knots to m/s for Taiwan standard
+        wind_speed_ms = wind_speed * 0.514444
+        
+        if wind_speed_ms >= 51.0:
+            return 'Strong Typhoon', taiwan_standard['Strong Typhoon']['color']
+        elif wind_speed_ms >= 33.7:
+            return 'Medium Typhoon', taiwan_standard['Medium Typhoon']['color']
+        elif wind_speed_ms >= 17.2:
+            return 'Mild Typhoon', taiwan_standard['Mild Typhoon']['color']
+        else:
+            return 'Tropical Depression', taiwan_standard['Tropical Depression']['color']
+    else:
+        # Atlantic standard uses knots
+        if wind_speed >= 137:
+            return 'C5 Super Typhoon', atlantic_standard['C5 Super Typhoon']['color']
+        elif wind_speed >= 113:
+            return 'C4 Very Strong Typhoon', atlantic_standard['C4 Very Strong Typhoon']['color']
+        elif wind_speed >= 96:
+            return 'C3 Strong Typhoon', atlantic_standard['C3 Strong Typhoon']['color']
+        elif wind_speed >= 83:
+            return 'C2 Typhoon', atlantic_standard['C2 Typhoon']['color']
+        elif wind_speed >= 64:
+            return 'C1 Typhoon', atlantic_standard['C1 Typhoon']['color']
+        elif wind_speed >= 34:
+            return 'Tropical Storm', atlantic_standard['Tropical Storm']['color']
+        else:
+            return 'Tropical Depression', atlantic_standard['Tropical Depression']['color']
 
 if __name__ == "__main__":
     print(f"Using data path: {DATA_PATH}")
